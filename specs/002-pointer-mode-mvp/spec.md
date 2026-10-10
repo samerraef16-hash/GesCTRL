@@ -1,4 +1,4 @@
-# Feature Specification: Pointer Mode MVP (Phase 1)
+# Feature Specification: Pointer Mode MVP + Reliability Hardening (Phases 1–2)
 
 **Feature Branch**: `002-pointer-mode-mvp`
 
@@ -6,7 +6,9 @@
 
 **Status**: Draft
 
-**Input**: User description: "create a specification for Phase 1: Pointer Mode MVP"
+**Input**: User description: "create a specification for Phase 1: Pointer Mode MVP". Extended
+during planning to include roadmap Phase 2 (Interaction Reliability Hardening), per `Plan.md` §3
+(spec 002 = Phases 1 + 2); see FR-033–FR-038 and SC-011–SC-013.
 
 ## Overview
 
@@ -200,7 +202,7 @@ loss; replay it twice; both replays produce identical action sequences, and no c
 ### Edge Cases
 
 - **Second hand or another person in view**: Only the primary hand controls; other hands never
-  move the cursor or click. (Full robustness is hardened in Phase 2.)
+  move the cursor or click, even when the primary hand leaves the view (see FR-033).
 - **Pinch held when tracking is lost**: Button released immediately on confirmed loss; on return,
   no automatic re-press.
 - **Single-frame tracking flicker**: Brief detection gaps shorter than the loss-confirmation window
@@ -328,6 +330,28 @@ loss; replay it twice; both replays produce identical action sequences, and no c
 - **FR-032**: The system MUST record per-stage timing so delay, tracking rate, and CPU use can be
   measured on demand.
 
+**Reliability hardening (roadmap Phase 2)**
+
+- **FR-033** (H1): The primary hand MUST stay locked to the hand that resumed control, followed by
+  position continuity. If the primary hand disappears while another hand stays in view, control
+  MUST NOT pass to the other hand; the system enters Tracking Lost instead. On return with several
+  hands, the hand nearest the last primary position is chosen.
+- **FR-034** (H2): When the camera is unplugged or taken by another app, the indicator MUST show
+  "Camera unavailable" (with the cause when known) within 1 second and all held input MUST be
+  released. The system MUST retry the camera automatically and resume when it and the hand return,
+  without restarting the app.
+- **FR-035** (H3): Frames with low tracking confidence or an implausible jump of the hand position
+  MUST be ignored: no action is started from them, the cursor holds still, and they count toward
+  tracking loss.
+- **FR-036** (H4): A benchmark tool MUST replay recorded sessions and report the number of
+  unintended actions per scenario (idle hand, typing, talking, second person), plus live delay,
+  tracking rate, and CPU use.
+- **FR-037** (H5): Every safety value still marked provisional in
+  `docs/interaction/safety-policy.md` MUST be tuned on recorded sessions, and the measured value
+  MUST become the default.
+- **FR-038** (H6): Activation, pause, and resume MUST be reviewed after Phase 1 use. Any change
+  and its reason MUST be recorded in the phase retrospective.
+
 ### Key Entities
 
 - **Application State**: Inactive, Paused, Active (Normal / Clutched), Tracking Lost; governs
@@ -368,6 +392,14 @@ loss; replay it twice; both replays produce identical action sequences, and no c
   replaying the same recording twice yields identical results.
 - **SC-010**: No image file is ever written and no network connection is made during a full test
   session.
+- **SC-011**: With a second hand or person in view, the non-primary hand causes zero actions, both
+  in replay tests and in a recorded second-person session.
+- **SC-012**: In 5 out of 5 camera interruptions (unplug, Windows Camera app taking the camera),
+  "Camera unavailable" appears within 1 second, held input is released, and control resumes
+  without restarting the app.
+- **SC-013**: The replay benchmark reports zero unintended actions over at least 10 minutes of
+  recorded idle, typing, and talking sessions using the final tuned defaults, and
+  `safety-policy.md` has no provisional values left.
 
 ## Assumptions
 
@@ -381,9 +413,11 @@ loss; replay it twice; both replays produce identical action sequences, and no c
   Phase 7.
 - The mode menu and other modes (Keyboard, Presentation, Media/System) are out of scope; only
   Pointer Mode exists in this phase.
-- Advanced reliability hardening (multiple people, measured false-trigger tuning, camera-sharing
-  improvements) is Phase 2; this phase provides the baseline behaviors required by the
-  constitution.
+- Reliability hardening (roadmap Phase 2) is part of this spec (FR-033–FR-038). Sharing the
+  camera with a video-call app at the same time is not supported; GesCRTL reports the camera as
+  unavailable and recovers when it is free.
+- Default shortcuts: `Ctrl+Alt+Esc` emergency stop, `Ctrl+Alt+P` pause/resume, `Ctrl+Alt+O`
+  turn off/on.
 - GesCRTL is launched manually; starting automatically at Windows sign-in is out of scope for
   this phase (deferred to Phase 7 settings / Phase 10 installer).
 - Packaging into an installer is not required for this phase; running from a development setup is
