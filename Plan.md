@@ -50,18 +50,25 @@ The first release should prioritize a small end-to-end experience that works con
 
 GesCRTL should be developed as a sequence of bounded product capabilities. The roadmap below records the overall product direction; it is not one giant implementation specification.
 
-For each substantial capability, follow the Spec Kit workflow appropriate to the installed version:
+Phase 0 used the full Spec Kit cycle. From Phase 1 on, a **lean cycle** is used to save time and tokens:
 
-1. **Specify** the user problem, user journey, requirements, and acceptance scenarios.
-2. **Clarify** important ambiguities before committing to a solution.
-3. **Plan** the technical approach and architecture for that capability.
-4. **Create a checklist** where useful to validate quality and completeness.
-5. **Generate tasks** that can be implemented and verified in small increments.
-6. **Analyze** the spec, plan, and tasks for gaps or contradictions.
-7. **Implement and verify** the feature against its acceptance criteria.
-8. **Converge/review** the result, update documentation, and capture lessons before moving on.
+1. **Specify**: a short spec (stories, acceptance criteria, measurable outcomes).
+2. **Plan**: `plan.md` only, with decisions recorded inline. Separate research, data-model, contract, or quickstart files only when genuinely needed.
+3. **Tasks**: short tasks (file, goal, done condition).
+4. **Implement and verify**: code plus tests are the main record; one batched manual test session at the end of each spec.
 
-Use the exact command names and generated file layout supported by the Spec Kit version and coding agent configured in the repository. Do not create all detailed specifications up front: keep the roadmap broad, then develop the next capability when it is ready to start.
+Clarify runs only when a spec has more than 3 open questions. Checklist and analyze are optional.
+
+The remaining phases are grouped into four specs:
+
+| Spec | Roadmap phases | Content |
+|---|---|---|
+| 002 | 1 + 2 | Pointer Mode MVP and interaction reliability hardening |
+| 003 | 3 + 4 + 6 | Mode system and HUD guidance, Presentation Mode, media and system controls |
+| 004 | 5 + 7 + 8 + 9 | Keyboard Mode, settings and personalization, custom gestures, calibration and multi-monitor |
+| 005 | 10 | Portfolio polish (a short checklist, not a full Spec Kit cycle) |
+
+Do not create all detailed specifications up front: develop the next spec when it is ready to start.
 
 A project constitution should be established first. It should encode the product principles above along with engineering expectations such as modularity, testability, configuration, privacy-conscious camera handling, and measurable acceptance criteria.
 
@@ -210,18 +217,20 @@ A project constitution should be established first. It should encode the product
 
 **Exit criterion:** Supported hardware/display setups and personalization options are documented and validated.
 
-### Phase 10 — Release Readiness and Open-Source Adoption
+### Phase 10 — Portfolio Polish
 
-**Outcome:** Other people can install, understand, try, and contribute to GesCRTL.
+**Outcome:** A visitor to the GitHub repository quickly understands what GesCRTL does, sees it working, and can run it from source. The project is a portfolio repository; it is not distributed as an installed product.
 
-- Package the application for the initial supported platform.
-- Provide first-run setup and clear permission/camera-status messaging.
-- Document supported operating systems, limitations, controls, and troubleshooting.
-- Confirm automated test coverage (unit and landmark-replay tests maintained since Phase 1), plus repeatable manual acceptance tests for camera interactions.
-- Include a short demo and contribution guidelines.
-- Review privacy implications and avoid retaining camera footage unless a clearly explained feature explicitly requires user-authorized recording.
+- README with a demo GIF or short video near the top, the feature list, the gesture table, and the safety controls.
+- Architecture overview (pipeline diagram) linking to the ADRs and the measured performance report.
+- Run-from-source quick start (Python version, `pip install`, model download, run command) and known limitations.
+- GitHub Actions CI running lint, type checks, and the unit and landmark-replay tests, with a status badge.
+- Privacy statement: no camera frames stored or sent.
+- Optional: a PyInstaller build attached to a GitHub Release.
 
-**Exit criterion:** A new user can install the release, understand its limitations, complete the quick start, and report reproducible issues.
+Not in scope: installer, code signing, auto-update, first-run wizard, contribution guidelines.
+
+**Exit criterion:** A reviewer can understand the project from the README in under 2 minutes, and a developer can run it from source by following the quick start.
 
 ---
 

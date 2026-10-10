@@ -1,18 +1,10 @@
 <!--
 SYNC IMPACT REPORT
-Version change: (template) → 1.0.0  [initial ratification]
-Modified principles: all placeholders replaced
-  [PRINCIPLE_1..5] → I. Safety First: No Unintended Input (NON-NEGOTIABLE)
-                     II. Reliability Before Breadth
-                     III. Predictable, Visible State
-                     IV. Deterministic, Testable Core (NON-NEGOTIABLE)
-                     V. Measured Performance and Responsiveness
-  Added: VI. Privacy by Design, VII. Modular, Platform-Isolated Architecture,
-         VIII. Simplicity, Ergonomics, and Sensible Defaults
-Added sections: Technical Standards and Constraints; Development Workflow and Quality Gates
-Removed sections: none
-Templates reviewed: plan-template.md (Constitution Check reads this file at runtime) ✅,
-  spec-template.md ✅, tasks-template.md ✅ — no template edits required.
+Version change: 1.0.0 → 1.1.0 (MINOR: workflow guidance materially changed)
+Modified sections: Development Workflow and Quality Gates (lean Spec Kit cycle);
+  Technical Standards (portfolio repo run from source; packaging optional)
+Principles I–VIII: unchanged
+Templates: no edits required
 Deferred TODOs: none
 -->
 
@@ -124,8 +116,9 @@ Rationale: users will only adopt an input device they trust not to act on its ow
 - **Baseline stack** (changes require an ADR): Python 3.11+; MediaPipe Hand Landmarker (Tasks
   API) for tracking; OpenCV for capture; Win32 `SendInput` for input injection (no
   `pyautogui`-style high-level automation in production paths); PySide6 for HUD, tray, and
-  settings UI; Pydantic-validated settings stored under `%APPDATA%\GesCRTL`; PyInstaller or
-  Nuitka for packaging; `pytest` for tests.
+  settings UI; Pydantic-validated settings stored under `%APPDATA%\GesCRTL`; `pytest` for tests.
+  The project is a portfolio GitHub repository run from source; packaging (PyInstaller) is
+  optional and not a quality gate.
 - **Pointer correctness**: process MUST be per-monitor DPI aware (V2); cursor positions use
   absolute virtual-desktop coordinates. Cursor anchor is a stable hand point (palm center or
   index MCP), not a fingertip; motion is smoothed with an adaptive filter (One Euro or
@@ -139,9 +132,12 @@ Rationale: users will only adopt an input device they trust not to act on its ow
 
 ## Development Workflow and Quality Gates
 
-- Work proceeds one bounded capability at a time using the Spec Kit cycle: specify → clarify →
-  plan → checklist (where useful) → tasks → analyze → implement → verify/converge. `Plan.md` is
-  the roadmap; it is not a specification.
+- Work proceeds one bounded capability at a time using a lean Spec Kit cycle: specify → plan →
+  tasks → implement → verify. Clarify runs only when a spec has more than 3 open questions;
+  checklist and analyze are optional. A plan produces `plan.md` only (decisions recorded inline)
+  unless a phase genuinely needs a separate research, data-model, contract, or quickstart file.
+  Code and tests are the primary record; documents stay short. `Plan.md` is the roadmap; it is
+  not a specification.
 - Every spec MUST include measurable acceptance criteria (including false-trigger expectations
   for any action-producing gesture).
 - Every implementation plan MUST pass a Constitution Check against Principles I–VIII; any
@@ -166,4 +162,4 @@ Rationale: users will only adopt an input device they trust not to act on its ow
   waived, only amended.
 - Runtime development guidance lives in `Plan.md` (roadmap) and `docs/adr/` (decisions).
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
+**Version**: 1.1.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
