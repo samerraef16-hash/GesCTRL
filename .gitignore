@@ -1,0 +1,8 @@
+spikes/feasibility/out/*
+!spikes/feasibility/out/.gitkeep
+spikes/feasibility/models/*.task
+spikes/feasibility/.venv/
+spikes/feasibility/build/
+spikes/feasibility/dist/
+spikes/feasibility/*.spec
+__pycache__/
