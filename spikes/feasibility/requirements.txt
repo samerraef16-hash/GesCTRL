@@ -1,0 +1,5 @@
+# Throwaway Phase 0 spike. After install run: pip freeze > requirements.lock.txt
+mediapipe
+opencv-python
+numpy
+psutil
