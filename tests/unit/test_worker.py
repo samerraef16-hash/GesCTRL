@@ -250,3 +250,22 @@ def test_worker_recording_replays_to_the_same_events(tmp_path):
     for a, b in zip(live, replayed, strict=True):  # landmarks are stored to 5 decimals
         if hasattr(a, "nx"):
             assert (a.nx, a.ny) == pytest.approx((b.nx, b.ny), abs=1e-3)
+
+
+def test_worker_applies_new_settings_with_release_first_and_keeps_state():
+    import dataclasses
+
+    from gescrtl.core.config import CoreConfig
+
+    w, inp, cam, ui = start_worker(resume_and_move_frames())
+    try:
+        assert wait_for(lambda: cam.exhausted)
+        assert wait_for(lambda: w.engine.state is State.ACTIVE)
+        before = inp.releases
+        w.apply_config(dataclasses.replace(CoreConfig(), active_region=0.9))
+        assert wait_for(lambda: w.engine.cfg.active_region == 0.9)
+        assert inp.releases > before
+        assert w.engine.state is State.ACTIVE
+    finally:
+        w.stop()
+        w.join(3)

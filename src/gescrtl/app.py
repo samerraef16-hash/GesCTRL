@@ -47,6 +47,7 @@ from gescrtl.platform.win_exit import install_exit_handlers
 from gescrtl.platform.win_hotkeys import WinHotkeys
 from gescrtl.platform.win_input import WinInput, enable_dpi_awareness
 from gescrtl.recording.jsonl import RecordingWriter
+from gescrtl.settings import store
 from gescrtl.stats import FrameTiming, StageStats
 from gescrtl.tracking.camera import Camera, CameraError
 from gescrtl.tracking.mediapipe_adapter import MediaPipeTracker
@@ -93,7 +94,7 @@ class Worker(threading.Thread):
         # opt-in camera preview: while set, Paused tracks every frame so the view is live
         self.preview_enabled = threading.Event()
         self.on_preview: Callable[[Any, HandFrame], None] | None = None
-        self._q: queue.Queue[tuple[Command, str] | None] = queue.Queue()
+        self._q: queue.Queue[tuple[Command, str] | Callable[[], None] | None] = queue.Queue()
         self._stop_event = threading.Event()
         self._tracker: Tracker | None = None
         self.recorder: RecordingWriter | None = None  # landmarks and commands only, never images
@@ -104,6 +105,10 @@ class Worker(threading.Thread):
 
     def post(self, cmd: Command, arg: str = "") -> None:
         self._q.put((cmd, arg))
+
+    def apply_config(self, cfg: CoreConfig) -> None:
+        """Reload settings on the worker thread: ReleaseAll first, state and mode are kept."""
+        self._q.put(lambda: self._emit_all(self.engine.apply_config(cfg)))
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -168,8 +173,10 @@ class Worker(threading.Thread):
         while True:
             if item is None:
                 return
-            cmd, arg = item
-            self._run_command(cmd, arg)
+            if callable(item):
+                item()
+            else:
+                self._run_command(*item)
             self._sync_camera()
             try:
                 item = self._q.get_nowait()
@@ -286,7 +293,6 @@ def main(argv: list[str] | None = None) -> int:
     qt = QApplication(sys.argv[:1])
     qt.setQuitOnLastWindowClosed(False)
 
-    cfg = CoreConfig(double_click_ms=input_backend.double_click_ms())
     overrides = {
         "active_region": args.region,
         "one_euro_min_cutoff": args.min_cutoff,
@@ -294,7 +300,14 @@ def main(argv: list[str] | None = None) -> int:
         "scroll_max_rate": args.scroll_rate,
         "scroll_deadzone_deg": args.scroll_deadzone,
     }
-    cfg = dataclasses.replace(cfg, **{k: v for k, v in overrides.items() if v is not None})
+
+    def build_config(settings: store.Settings) -> CoreConfig:
+        """Settings file first, then command-line flags on top (flags win)."""
+        base = settings.to_core_config(double_click_ms=input_backend.double_click_ms())
+        return dataclasses.replace(base, **{k: v for k, v in overrides.items() if v is not None})
+
+    settings, settings_warnings = store.load()
+    cfg = build_config(settings)
     engine = Engine(cfg)
     camera = Camera()
     stats = StageStats()
@@ -357,10 +370,28 @@ def main(argv: list[str] | None = None) -> int:
         input_backend.release_all()
         qt.quit()
 
-    def not_yet() -> None:
-        tray.notify("Settings reload arrives with the settings file support.")
+    def apply_settings(loaded: tuple[store.Settings, list[str]], what: str) -> None:
+        new_settings, warnings = loaded
+        new_cfg = build_config(new_settings)
+        worker.apply_config(new_cfg)
+        preview.set_region(new_cfg.active_region)
+        note = f"{what}." if not warnings else f"{what}, but: " + "; ".join(warnings[:3])
+        more = f" (+{len(warnings) - 3} more)" if len(warnings) > 3 else ""
+        tray.notify(note + more, warning=bool(warnings))
+        for w in warnings:
+            log.warning("settings: %s", w)
 
-    tray = Tray(worker.post, not_yet, not_yet, quit_app, set_preview)
+    def reload_settings() -> None:
+        apply_settings(store.load(), "Settings reloaded")
+
+    def reset_settings() -> None:
+        apply_settings(store.reset(), "Settings reset to defaults")
+
+    tray = Tray(worker.post, reload_settings, reset_settings, quit_app, set_preview)
+    if settings_warnings:
+        for w in settings_warnings:
+            log.warning("settings: %s", w)
+        tray.notify("Settings problem, defaults used: " + "; ".join(settings_warnings[:3]))
 
     def route(event: Event) -> None:
         hud.handle(event)

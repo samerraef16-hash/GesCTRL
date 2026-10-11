@@ -298,7 +298,7 @@ Conventions:
 
 **Independent Test**: change `active_region`, reload from the tray, and check that the hand travel changes; reset and check that the defaults are back.
 
-- [ ] T037 [P] [US4] Write `tests/unit/test_settings.py` using `tmp_path`:
+- [X] T037 [P] [US4] Write `tests/unit/test_settings.py` using `tmp_path`:
   - A missing file → defaults are written.
   - A valid change is loaded.
   - `active_region: -1` → default used + a warning naming `active_region`; the other fields are still loaded.
@@ -306,10 +306,10 @@ Conventions:
   - Unknown keys → ignored with a warning.
   - There is no field for the emergency hotkey, pause, or release-on-loss; assert the model has no such keys.
   - Reset rewrites the defaults.
-- [ ] T038 [P] [US4] Write `tests/replay/test_us4_reload.py`:
+- [X] T038 [P] [US4] Write `tests/replay/test_us4_reload.py`:
   - `engine.apply_config(new)` during a drag → `ReleaseAll` first; the state and sub are unchanged.
   - A new `active_region` changes the `MoveCursor` mapping for the same hand path.
-- [ ] T039 [US4] Write the settings store in `src/gescrtl/settings/store.py` (D15):
+- [X] T039 [US4] Write the settings store in `src/gescrtl/settings/store.py` (D15):
   - A pydantic `Settings` model mirrors the tunable `CoreConfig` fields, with `Field(ge,le)` ranges. Examples:
     - `active_region` 0.2–1.0
     - `min_confidence` 0.1–0.95
@@ -320,7 +320,7 @@ Conventions:
   - Path: `%APPDATA%\GesCRTL\settings.json`, overridable for tests.
   - `load() -> (Settings, warnings)` validates field by field.
   - Also: `save()`, `reset()`, `to_core_config()`.
-- [ ] T040 [US4] Wire settings in `src/gescrtl/app.py` and `src/gescrtl/platform/tray.py`:
+- [X] T040 [US4] Wire settings in `src/gescrtl/app.py` and `src/gescrtl/platform/tray.py`:
   - Load settings at startup and show warnings via the tray/HUD.
   - Tray "Reload settings" → load → `engine.apply_config` (ReleaseAll first) → warnings.
   - Tray "Reset to defaults" → `reset()` → reload.

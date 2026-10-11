@@ -83,8 +83,13 @@ class Tray(QObject):
         self._preview_action.setChecked(on)
         self._preview_action.blockSignals(False)
 
-    def notify(self, text: str) -> None:
-        self._tray.showMessage("GesCRTL", text, QSystemTrayIcon.MessageIcon.Warning, 6000)
+    def notify(self, text: str, warning: bool = True) -> None:
+        icon = (
+            QSystemTrayIcon.MessageIcon.Warning
+            if warning
+            else QSystemTrayIcon.MessageIcon.Information
+        )
+        self._tray.showMessage("GesCRTL", text, icon, 6000)
 
     def close(self) -> None:
         self._tray.hide()
