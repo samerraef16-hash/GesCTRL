@@ -12,7 +12,7 @@
 | Pinch release ratio | > 0.35 *(provisional)* | G2, G3 | Hysteresis: release threshold, looser than start so it cannot flicker |
 | Hold time: resume | 1000 ms *(provisional)* | G6 | Deliberate start |
 | Hold time: mode menu | 800 ms *(provisional)* | G7 | Deliberate menu opening |
-| Hold time: pause | 1500 ms *(provisional)* | G5 | Separates clutch from pause |
+| Hold time: pause | 1500 ms *(provisional)* | G8 | Separates a clutch from a deliberate pause |
 | Hold time: drag | 300 ms *(provisional)* | G2 | Separates a click from a drag |
 | Cooldown: right click | 300 ms *(provisional)* | G3 | Prevents repeated right clicks |
 | Cooldown: mode switch | 1000 ms *(provisional)* | G7 / mode menu | Prevents rapid mode flipping |

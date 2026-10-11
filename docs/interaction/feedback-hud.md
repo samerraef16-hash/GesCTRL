@@ -40,5 +40,5 @@ cancel". The menu closes automatically after 5 s with no selection.
 
 ## Hints per mode
 
-- **Pointer**: "Pinch: click", "Hold pinch: drag", "Two fingers: scroll", "Fist: hold · keep fist: pause".
+- **Pointer**: "Pinch: click · hold pinch: drag", "Thumb out, tilt: scroll", "Flat hand: hold cursor", "Keep flat hand 1.5 s: pause".
 - **Keyboard, Presentation, Media/System**: "Coming in a later phase".

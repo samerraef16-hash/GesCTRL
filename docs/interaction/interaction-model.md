@@ -17,7 +17,7 @@ behavior, this document is amended first.
 | Paused | Running | No | Reduced (start: 10 FPS) | Launch (E1); pause (E3/E4); emergency stop (E5); Turn on (E7) | Resume (E2/E3); Turn off (E6) |
 | Active | Running | Yes, only in `Normal` and when confidence ≥ threshold | Full | Resume (E2/E3); automatic return from Tracking Lost (E9) | Pause, emergency stop, Turn off, hand loss, camera loss |
 | Active · Normal | Running | Yes | Full | Entering Active; mode confirmed or cancelled; clutch ended | Clutch (E16); mode menu (E12) |
-| Active · Clutched | Running | No (cursor frozen) | Full | Fist detected (E16) | Fist opened before 1.5 s (E17); fist reaches 1.5 s (E4 → Paused) |
+| Active · Clutched | Running | No (cursor frozen) | Full | Flat hand detected (E16) | Flat hand released (E17); flat hand held to 1.5 s (E4 → Paused) |
 | Active · ModeMenuOpen | Running | No (menu only) | Full | Mode-menu gesture (E12) | Mode confirmed (E13); cancelled (E14); hand loss; pause |
 | Tracking Lost · HandMissing | Running | No | Full | Primary hand loss confirmed (E8) | Hand reappears (E9) automatic; pause; Turn off |
 | Tracking Lost · CameraUnavailable | Not available | No | None | Camera becomes unavailable (E10) | Camera available again (E11) → HandMissing; pause; Turn off |
@@ -39,7 +39,7 @@ resume gesture or uses the resume shortcut or tray item (FR-005a).
 1. **E1** Launch
 2. **E2** Resume gesture (G6, open palm held ≥ 1 s)
 3. **E3** Resume/pause hotkey or tray "Resume"
-4. **E4** Pause gesture (G5, fist held ≥ 1.5 s)
+4. **E4** Pause gesture (G8 flat hand held ≥ 1.5 s)
 5. **E5** Emergency-stop hotkey
 6. **E6** Turn off (hotkey or tray)
 7. **E7** Turn on (hotkey or tray)
@@ -51,8 +51,8 @@ resume gesture or uses the resume shortcut or tray item (FR-005a).
 13. **E13** Mode confirmed (pinch on a menu item)
 14. **E14** Mode menu cancelled (fist, or 5 s with no selection)
 15. **E15** Exit or crash
-16. **E16** Fist detected while Active · Normal (clutch start)
-17. **E17** Fist opened before 1.5 s (clutch end)
+16. **E16** Flat hand (G8) detected while Active · Normal (clutch start)
+17. **E17** Flat hand released (clutch end)
 
 ## Transition matrix
 
@@ -81,13 +81,15 @@ The mode is unchanged unless the cell says otherwise.
 | **Paused** | no-op (flag set) · "Paused · Camera unavailable" | no-op (flag cleared) · "Paused" | no-op | no-op | no-op | → exit · RA | no-op | no-op |
 | **Active · Normal** | → TC · RA · "Camera unavailable" | no-op | → AM · RA · mode menu shown | no-op | no-op | → exit · RA | → AC · RA · "Pointer · Hold" | no-op |
 | **Active · Clutched** | → TC · RA · "Camera unavailable" | no-op | no-op | no-op | no-op | → exit · RA | no-op | → AN · "Pointer" |
-| **Active · ModeMenuOpen** | → TC (menu closed, mode unchanged) · RA · "Camera unavailable" | no-op | no-op | → AN (new mode) · RA · "Active · \<new mode\>" | → AN (mode unchanged) · menu closes | → exit · RA | no-op (a fist inside the menu means E14, not clutch) | no-op |
+| **Active · ModeMenuOpen** | → TC (menu closed, mode unchanged) · RA · "Camera unavailable" | no-op | no-op | → AN (new mode) · RA · "Active · \<new mode\>" | → AN (mode unchanged) · menu closes | → exit · RA | no-op (a fist inside the menu means E14) | no-op |
 | **Tracking Lost (HandMissing)** | → TC · "Camera unavailable" | no-op | n/a (no hand) | n/a (no hand) | n/a (no hand) | → exit · RA | n/a (no hand) | n/a (no hand) |
 | **Tracking Lost (CameraUnavailable)** | no-op | → TH · "Hand not visible" | n/a (no camera) | n/a (no camera) | n/a (no camera) | → exit · RA | n/a (no camera) | n/a (no camera) |
 
 Notes:
-- In Active · Clutched, E4 (fist held until it reaches 1.5 s) leads to Paused with RA; this row
-  entry is shown under E4.
+- In Active · Clutched, E4 (flat hand held until it reaches 1.5 s) leads to Paused with RA; this
+  row entry is shown under E4.
+- In Active · Normal a held fist (G5) freezes the cursor and releases held input once, but is not a
+  state change and never pauses.
 - Gestures that occur while a transition is completing are ignored.
 - Any event not listed as acting is a no-op; adding a new event requires a new column here.
 
@@ -109,7 +111,7 @@ independent paths (FR-005):
 
 1. The global hotkey `Ctrl+Alt+Esc` (see `contracts/global-hotkeys.md`), which works with any
    application focused.
-2. The pause gesture G5 (fist held ≥ 1.5 s).
+2. The pause gesture G8 (flat hand held ≥ 1.5 s).
 
 The tray menu offers Pause as a mouse-based third path. From Inactive the emergency stop has no
 effect, because nothing is acting.

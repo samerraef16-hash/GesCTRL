@@ -93,8 +93,8 @@ replay reuses the recorded timestamps, so results are identical on every run (FR
 - pinch ratios thumb–index and thumb–middle
 - finger-extended flags (tip farther from the wrist than the PIP joint)
 
-Poses: G1 relaxed, G2 pinch-index, G3 pinch-middle, G4 two-fingers, G5 fist, G6 open palm,
-G7 three-fingers.
+Poses: G1 relaxed, G2 pinch-index, G3 pinch-middle, G4 fist-with-thumb-out (scroll), G5 fist, G6 open palm,
+G7 three-fingers, G8 flat hand (clutch). See `docs/interaction/gesture-vocabulary.md`.
 - Pinch enter is < 0.25 and release is > 0.35 (hysteresis). If both pinches are below enter, the
   smaller ratio wins.
 - A raw pose becomes the *stable* pose only after `stable_frames` (3) consecutive frames.
@@ -118,13 +118,21 @@ does not drift in from a stale position.
   follows the hand, and the release sends `ButtonUp`.
 - G3 is a tap → `Click(right)` with a 300 ms cooldown. G3 cannot start a drag.
 
-**D6 – Scroll.**
-- While G4 is stable, the cursor is frozen.
-- Each frame adds `-(Δanchor_y) × scroll_gain` to an accumulator (hand up → content up → negative
-  wheel delta). Whole multiples of `scroll_step` (default 30 wheel units) are emitted as
-  `Scroll(delta)`.
-- The accumulator and the reference point reset when G4 starts or ends. This makes the repeated
-  strokes in US3 scenario 6 work, and nothing is emitted while the hand is still.
+**D6 – Scroll (thumb tilt, like a held scroll wheel).**
+- While G4 (fist, thumb out) is stable, the cursor is frozen and hand movement is ignored.
+- Tilt = angle of the thumb (landmark 2 to 4) above horizontal in the aspect-corrected image,
+  `atan2(-dy, |dx|)`, low-pass filtered (~2 Hz One Euro, beta 0). The filter restarts on the first
+  raw G4 frame so the start angle is the real thumb angle.
+- The start angle (neutral) is taken when G4 becomes stable and keeps following the thumb for
+  `scroll_settle_ms` (250) while it settles. After that `rel = tilt - start`.
+- Rate: 0 inside `scroll_deadzone_deg` (8); then `scroll_max_rate * x^1.5` with
+  `x = (|rel| - dz) / (scroll_full_deg - dz)` capped at 1 (full at 45 deg); thumb up is positive
+  (scroll up). The accumulator adds `rate * dt` (dt from frame timestamps, capped at 100 ms) and
+  whole multiples of `scroll_step` (30) are emitted as `Scroll(delta)`, so speed does not depend on
+  FPS.
+- Scrolling runs only while the *raw* pose is still G4 (the thumb moves sharply as the fist
+  opens, before the stable pose changes). Ending the pose, pause, loss or low confidence stop it.
+- A classic vertical thumbs-up only anchors there; it scrolls only when tilted away.
 - Only vertical scrolling is supported.
 
 **D7 – States.** These states are implemented exactly as in `docs/interaction/interaction-model.md`:
@@ -135,13 +143,14 @@ does not drift in from a stale position.
 - TrackingLost·HandMissing
 - TrackingLost·CameraUnavailable
 
-Clutch/pause share G5: on fist onset the state is Clutched. If the fist is held to `pause_hold_ms`
-(1500), the app goes to Paused with RA. Resume requires G6 held for `resume_hold_ms` (1000) in
+Clutch is the flat hand G8: on G8 onset the state is Clutched (RA, cursor frozen) until it is
+released. Held to `pause_hold_ms` (1500) the flat hand pauses (RA). A fist (G5) in Normal freezes
+the cursor and releases held input once but never pauses. Resume requires G6 held for `resume_hold_ms` (1000) in
 Paused. The pause and resume cooldown is 1000 ms. Emergency stop shows "Stopped" for 600 ms, then
 "Paused".
 
 **D8 – Mode menu (G7).** ModeMenuOpen and E12–E14 are **not implemented** (FR-016). G7 is
-recognized as a pose so that it cannot be mistaken for G1/G4. It causes no action and no cursor
+recognized as a pose so that it cannot be mistaken for G1. It causes no action and no cursor
 movement while held.
 
 **D9 – Primary hand (H1).**
@@ -208,7 +217,7 @@ If `Ctrl+Alt+Esc` registration fails, the app shows a `Warning` and the engine r
   The cue is hidden outside Active.
 
 **D15 – Settings.**
-- Pydantic `Settings` covers active_region, One Euro params, scroll_gain/step, hold times, pinch
+- Pydantic `Settings` covers active_region, One Euro params, scroll rate/step, hold times, pinch
   thresholds, cooldowns, min_confidence, stable_frames, and the jump limits. Each field has a range.
 - Loading validates field by field. An invalid field falls back to its default, the field name
   goes into a `Warning`, and the app keeps running (FR-025).
@@ -362,3 +371,19 @@ Results go to `docs/measurements/phase1-2-report.md` along with a short retrospe
 |---|---|---|
 | ModeMenuOpen state and E12–E14 from the interaction model are not implemented | Spec FR-016: the mode system belongs to spec 003 | Implementing a menu with only one usable mode adds untested UI with no user value |
 | Recording format bumped to v2 (command lines) | Hotkey/tray/camera events must be replayable for transition tests | v1 frame-only recordings cannot reproduce pause/stop/camera transitions |
+
+## Implementation notes (deviations found while building T001–T026)
+
+- **Mirroring**: the tracker adapter mirrors the image, so core landmarks are already in the user's view; the engine has no `mirrored` flag. `HandFrame` carries `aspect` (width/height) because distances must be measured in aspect-corrected space.
+- **Pose priority**: a pinch is tested *before* a fist, with a guard that the pinching fingertip is not curled into the palm. Reason: in the Phase 0 recording the user's natural pinch has the other three fingers curled (tip/pip 0.7–0.85), so fist-first would turn clicks into clutches. The guard and the fist/open thresholds are checked on real fist data in the manual session (T055).
+- **Cursor freeze (D5)**: the cursor freezes at the first *raw* pinch frame (position `pinch_lookback_frames` earlier), not at the stable onset, and stays frozen for `click_stabilize_ms` after release. `double_click_dist` is a config value (0.02 of the screen); only the double-click *time* comes from the OS.
+- **Smoothing units**: One Euro runs on camera-normalized palm coordinates, as in the Phase 0 spike, so `beta = 0.007` is nearly inert there. Revisit in T051 if the cursor feels laggy.
+- **Commands**: added `TOGGLE_PAUSE`, `TOGGLE_POWER` and `EXIT`; settings reload is `Engine.apply_config()` instead of a command. `Engine.start()` and `Engine.tick()` were added (initial HUD events; the "Stopped" display timer).
+- **Resume re-arming**: after any pause or stop the open-palm resume only counts once the hand has shown another pose or been absent for the loss window, so pausing with an open hand cannot resume itself.
+- **Primary hand** (T047's core logic) already lives in `core/primary_hand.py`; T045, T046 and the remaining T047 checks are still open.
+- **Gesture change after the first live test**: two-finger scroll was confused with pinching (forming it can put the thumb against the middle finger, which risks a stray right click). Scroll is now **thumbs-up** (G4) and clutch is the **flat hand** (G8). The fist (G5) no longer clutches; it freezes the cursor and, held 1.5 s, pauses, which keeps a gesture path to stop (constitution I). Thumb "out" is measured from the palm center (0.68 hand sizes), and a thumbs-up also needs the thumb tip more than 0.8 hand sizes from the index fingertip; on the Phase 0 recording this rule produced no false thumbs-up in 1031 natural frames.
+- **Camera preview** (`platform/preview.py`, tray item or `--preview`): opt-in mirrored live view with the tracked hand, the cursor-area box and a pose readout. It shows frames on screen only. While it is open, Paused tracks every frame instead of every third. Keys: `S` skeleton on/off, `D` readout on/off.
+- **Live tuning flags** until the settings file exists (T039): `--region`, `--min-cutoff`, `--beta`.
+- **Pause gesture moved to the flat hand** (held 1.5 s) after the second live test; the fist only freezes the cursor.
+- **Scroll is now rate control by thumb tilt** (third live test): hand-travel scrolling was awkward. See D6 and spec FR-014. The tilt filter restarts on the first raw G4 frame; without that, the start angle carried a ~2.5 deg error that, through the dead zone and the 1.5 power curve, made up and down scroll speeds differ by about 40%.
+- Live tuning flags added: `--scroll-rate`, `--scroll-deadzone`.

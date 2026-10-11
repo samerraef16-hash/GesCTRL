@@ -32,7 +32,7 @@ measured values from `docs/measurements/feasibility-report.md`.
 ### Session 2026-10-10
 
 - Q: Does scrolling move the page only while the hand moves, or continuously like a joystick? →
-  A: Only while the hand moves, proportional to hand motion, like dragging the page.
+  A (superseded 2026-10-11, see below): Only while the hand moves.
 - Q: Should a visual cue appear at the cursor when gestures are recognized? → A: Yes, always on:
   ready ring, pinch progress, click flash, and distinct drag/scroll/clutch looks.
 - Q: How do settings file edits take effect? → A: Via a "Reload settings" tray item; settings are
@@ -40,21 +40,30 @@ measured values from `docs/measurements/feasibility-report.md`.
 - Q: Should GesCRTL start automatically at Windows sign-in in Phase 1? → A: No; manual launch
   only. Auto-start is deferred to Phase 7/10.
 
+### Session 2026-10-11 (after the first live tests)
+
+- Q: How should scrolling work? → A: Like holding a mouse scroll wheel. A fist with the thumb out
+  sideways is the "wheel click"; tilting the thumb up or down scrolls up or down, faster the more
+  it is tilted, and stops when the thumb returns to where it started. Moving the hand does not
+  scroll. (Hand-travel scrolling was awkward and the two-finger pose was confused with pinching.)
+- Q: What is neutral (no scrolling)? → A: The thumb angle at the moment the pose is recognized.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Turn on control and move the cursor safely (Priority: P1)
 
 A user launches GesCRTL, sees that it is paused, shows an open palm to start, and moves the cursor
 across the whole primary screen by moving one relaxed hand within a comfortable area in front of
-the camera. They can freeze the cursor briefly with a fist, pause control with a longer fist,
-and stop everything instantly with a keyboard shortcut.
+the camera. They can freeze the cursor with a flat hand (upright, palm toward the camera, fingers together,
+thumb tucked across the palm), pause control by holding that flat hand longer, and stop everything instantly with
+a keyboard shortcut.
 
 **Why this priority**: Cursor movement with safe on/off is the smallest experience that proves
 GesCRTL works as an input device. Every other action builds on it, and the constitution requires
 safety controls from the first usable release.
 
 **Independent Test**: Launch the app, resume with an open palm, reach all four screen corners and
-the center, freeze with a short fist, pause with a long fist, resume again, and use the emergency
+the center, freeze with a flat hand, pause with a longer flat hand, resume again, and use the emergency
 shortcut—all without touching the mouse or touchpad.
 
 **Acceptance Scenarios**:
@@ -66,10 +75,11 @@ shortcut—all without touching the mouse or touchpad.
 3. **Given** GesCRTL is Active, **When** the user moves their relaxed hand within the active
    region, **Then** the cursor follows smoothly and can reach every edge and corner of the primary
    screen.
-4. **Given** GesCRTL is Active, **When** the user makes a fist and opens it before the pause hold
-   time, **Then** the cursor stays frozen while the fist is held and resumes following afterward
-   (clutch).
-5. **Given** GesCRTL is Active, **When** the user holds a fist for the pause hold time, **Then**
+4. **Given** GesCRTL is Active, **When** the user shows a flat hand (upright, palm toward the
+   camera, fingers together, thumb tucked across the palm), **Then** the cursor stays frozen while
+   the flat hand is held and resumes following when it is released (clutch). A fist also freezes the cursor
+   but is neither a clutch nor a pause.
+5. **Given** GesCRTL is Active, **When** the user holds the flat hand for the pause hold time, **Then**
    GesCRTL becomes Paused and stops moving the cursor.
 6. **Given** any state except Inactive, **When** the user presses the emergency-stop shortcut,
    **Then** GesCRTL becomes Paused immediately with all held input released, and the indicator
@@ -117,8 +127,8 @@ recorded.
 ### User Story 3 - Drag and scroll (Priority: P3)
 
 A user holds a thumb–index pinch to grab an item and moves their hand to drag it, releasing the
-pinch to drop. With index and middle fingers extended together, moving the hand up or down
-scrolls the content under the cursor.
+pinch to drop. With a fist and the thumb sticking out sideways, tilting the thumb up or down
+scrolls the content under the cursor, faster the more it is tilted (like a held scroll wheel).
 
 **Why this priority**: Dragging and scrolling complete the everyday mouse vocabulary (moving files,
 selecting text, reading long pages).
@@ -136,15 +146,16 @@ document from top to bottom and back, without a physical mouse.
    returns.
 3. **Given** a drag is in progress, **When** the user triggers pause or the emergency stop,
    **Then** the mouse button is released immediately.
-4. **Given** the cursor is over a scrollable page, **When** the user extends index and middle
-   fingers together and moves the hand up or down, **Then** the content moves with the hand like
-   dragging the page (hand up moves content up), by an amount proportional to hand movement; when
-   the hand stops, scrolling stops; the cursor does not move while scrolling.
-6. **Given** a long document, **When** the user ends the scroll pose, moves the hand back, and
-   starts the scroll pose again, **Then** scrolling continues from where it was without the
-   repositioning movement causing any scroll (repeated strokes).
-5. **Given** the user ends the scroll gesture, **When** they return to a relaxed hand, **Then**
-   scrolling stops and normal cursor movement resumes.
+4. **Given** the cursor is over a scrollable page, **When** the user makes a fist with the thumb
+   out sideways and holds it level, **Then** nothing scrolls; **When** they tilt the thumb up,
+   **Then** the page scrolls up, and **When** they tilt it down, **Then** it scrolls down, in both
+   cases faster the more the thumb is tilted from where it started; the cursor does not move while
+   scrolling.
+5. **Given** the user is scrolling, **When** they return the thumb to where it started, **Then**
+   scrolling stops; **When** they open the fist or make any other pose, **Then** scrolling stops
+   at once and normal cursor movement resumes.
+6. **Given** the user forms the pose with the thumb already tilted (for example a classic
+   thumbs-up), **Then** nothing scrolls until the thumb is tilted away from that starting angle.
 
 ---
 
@@ -235,7 +246,7 @@ loss; replay it twice; both replays produce identical action sequences, and no c
   `specs/001-product-foundation/data-model.md`).
 - **FR-002**: The system MUST start in Paused and MUST NOT send any input until the user performs
   the resume gesture or uses the resume shortcut/tray item.
-- **FR-003**: Users MUST be able to pause with the pause gesture (fist held for the pause hold
+- **FR-003**: Users MUST be able to pause with the pause gesture (flat hand held for the pause hold
   time), the pause/resume shortcut, or the tray; and resume with the resume gesture (open palm held
   for the resume hold time), the shortcut, or the tray.
 - **FR-004**: The system MUST provide an emergency stop via a global keyboard shortcut (default
@@ -265,13 +276,16 @@ loss; replay it twice; both replays produce identical action sequences, and no c
   stabilization time so the click lands where the user aimed.
 - **FR-013**: A thumb–index pinch held longer than the drag hold time MUST press and hold the left
   button and move the cursor with the hand; releasing the pinch MUST release the button.
-- **FR-014**: Index + middle fingers extended together MUST scroll vertically only while the hand
-  moves, by an amount proportional to vertical hand movement, with content following the hand
-  (drag-the-page direction); no scrolling occurs while the hand is still or after the pose ends;
-  the cursor does not move during scrolling; the scroll amount per unit of hand movement MUST be
-  adjustable.
-- **FR-015**: A short fist (shorter than the pause hold time) MUST freeze the cursor without any
-  other action (clutch).
+- **FR-014**: A fist with the thumb out and clear of the index fingertip MUST scroll vertically
+  like a held scroll wheel: the thumb angle when the pose is recognized is neutral; tilting the
+  thumb up scrolls up and tilting it down scrolls down, with speed rising smoothly with the tilt
+  (a small dead zone around neutral does nothing, and speed is capped). No scrolling occurs while
+  the pose is still settling, when the thumb is at its starting angle, or after the pose ends; hand
+  movement MUST NOT scroll and the cursor MUST NOT move during scrolling. Speed per degree of tilt
+  and the maximum speed MUST be adjustable.
+- **FR-015**: The flat hand (clutch) MUST freeze the cursor without any other action. Held for the pause
+  hold time (1.5 s) it MUST pause. A fist MUST also freeze the cursor and release held input, but
+  never pauses.
 - **FR-016**: The mode-menu gesture MUST have no effect in this phase.
 
 **Safety (constitution Principle I)**
@@ -358,8 +372,8 @@ loss; replay it twice; both replays produce identical action sequences, and no c
   whether input may be sent and whether the camera runs.
 - **Primary Hand**: The single hand currently in control; its smoothed anchor position drives the
   cursor.
-- **Gesture Event**: A recognized hand form (relaxed, pinch thumb–index, pinch thumb–middle, two
-  fingers, fist, open palm) with start/end times and confidence.
+- **Gesture Event**: A recognized hand form (relaxed, pinch thumb–index, pinch thumb–middle,
+  thumbs-up, fist, open palm, flat hand) with start/end times and confidence.
 - **Pointer Action**: Cursor move, left click, double-click, right click, drag start/end, scroll
   amount; consequential actions are subject to safety rules.
 - **Settings**: User-adjustable values with defaults and allowed ranges; safety controls excluded.

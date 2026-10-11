@@ -22,6 +22,8 @@ Use these terms exactly. Each has one definition.
 
 - **Mode**: The context that decides what mode-specific gestures mean. Exactly one is current.
 - **Pointer Mode**: The default mode; controls the cursor, clicks, drag, and scroll.
+- **Scroll (wheel pose)**: A fist with the thumb out sideways. Tilting the thumb up or down scrolls
+  up or down, faster the more it is tilted from where the pose started, like a held scroll wheel.
 - **Keyboard Mode**: A later-phase mode for text entry and shortcuts.
 - **Presentation Mode**: A later-phase mode for slide control and a virtual pointer.
 - **Media/System Mode**: A later-phase mode for playback and common system actions.
@@ -38,9 +40,9 @@ Use these terms exactly. Each has one definition.
 
 ## Control actions
 
-- **Clutch**: A fist held for less than the pause hold time; the cursor freezes and no action is
-  sent.
-- **Pause**: Moving to Paused, by fist held for the pause hold time (1.5 s), shortcut, or tray.
+- **Clutch**: The flat hand (upright, palm toward the camera, fingers together, thumb tucked across
+  the palm); the cursor freezes and no action is sent.
+- **Pause**: Moving to Paused, by the flat hand held for the pause hold time (1.5 s), shortcut, or tray.
 - **Resume**: Leaving Paused to Active, by open palm held for the resume hold time, shortcut, or
   tray.
 - **Turn off**: Moving to Inactive (camera released) by shortcut or tray only.
