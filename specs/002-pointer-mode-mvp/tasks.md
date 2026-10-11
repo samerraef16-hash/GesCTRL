@@ -401,18 +401,18 @@ Conventions:
 
 ## Phase 9: Polish & verification
 
-- [ ] T052 [P] Write `README.md` (short):
+- [X] T052 [P] Write `README.md` (short):
   - What it is.
   - Run-from-source steps (venv, `pip install -e ".[dev]"`, `scripts/fetch_model.ps1`, `python -m gescrtl`).
   - The Pointer gesture table.
   - Safety controls (`Ctrl+Alt+Esc`, flat-hand hold, tray).
   - The privacy statement.
   - A link to `docs/product/known-limitations.md`.
-- [ ] T053 [P] Update `docs/product/known-limitations.md`:
+- [X] T053 [P] Update `docs/product/known-limitations.md`:
   - G7/mode menu inactive in this phase.
   - Scroll is vertical only; high-resolution wheel deltas may be coarse in some apps.
   - Camera recovery behaviour.
-- [ ] T054 Run the quality gate:
+- [X] T054 Run the quality gate:
   - `ruff check .`, `ruff format --check .`, `mypy src/gescrtl/core`, and `pytest` must all be green.
   - Fix any issues found.
   - Confirm that every transition and gesture in plan.md "Replay Test Coverage" has a test (FR-030/SC-009). Add any missing ones.
