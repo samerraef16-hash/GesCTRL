@@ -21,6 +21,7 @@ from gescrtl.core.types import (
     CueChanged,
     CueKind,
     Event,
+    Hand,
     HandFrame,
     Pose,
     ReleaseAll,
@@ -110,6 +111,8 @@ class Engine:
 
         hands = frame.hands if frame is not None else ()
         aspect = frame.aspect if frame is not None else DEFAULT_ASPECT
+        if sm.state is State.PAUSED and len(hands) > 1:
+            hands = self._resume_candidates(hands, aspect)
         hand = self.primary.select(hands, reacquire=sm.state in (State.PAUSED, State.TRACKING_LOST))
         feats = None
         if hand is not None and hand.score >= self.cfg.min_confidence:
@@ -178,6 +181,16 @@ class Engine:
             self.pointer.reset()
             events += [ReleaseAll("fist"), CueChanged(CueKind.CLUTCH)]
         return events
+
+    @staticmethod
+    def _resume_candidates(hands: tuple[Hand, ...], aspect: float) -> tuple[Hand, ...]:
+        """While Paused with several hands, the one showing the open palm is the candidate."""
+        palms = []
+        for h in hands:
+            f = features.compute(h, aspect)
+            if f is not None and f.thumb_extended and all(f.extended(i) for i in range(4)):
+                palms.append(h)
+        return tuple(palms) or hands
 
     def _flat_hand_pause(self, t_ns: int, anchor: tuple[float, float]) -> list[Event]:
         """The flat hand held *still* for pause_hold_ms is the gesture path to Pause."""

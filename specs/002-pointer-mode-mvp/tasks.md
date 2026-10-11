@@ -358,35 +358,35 @@ Conventions:
 
 ## Phase 8: Reliability Hardening (Phase 2 items H1–H6)
 
-- [ ] T045 [P] Write `tests/replay/test_h1_primary_hand.py` (H1):
+- [X] T045 [P] Write `tests/replay/test_h1_primary_hand.py` (H1):
   - A second synthetic hand pinching or moving anywhere while the primary hand is relaxed → 0 clicks and the cursor follows the primary hand only.
   - The primary hand leaves while a second hand stays → TrackingLost (no swap).
   - On return with 2 hands → the one nearest the last primary position is chosen.
   - The hand that completed the resume hold becomes primary even if another hand has a higher score.
-- [ ] T046 [P] Write `tests/replay/test_h3_uncertain.py` (H3):
+- [X] T046 [P] Write `tests/replay/test_h3_uncertain.py` (H3):
   - During a pinch, insert frames with score below `min_confidence` → no click until the pose is stable again for `stable_frames`.
   - An anchor jump greater than `max_anchor_jump` in 1 frame → that frame is rejected and the cursor holds.
   - `loss_frames` consecutive bad frames during a drag → `ButtonUp`/RA.
-- [ ] T047 Write primary-hand lock and jump rejection in `src/gescrtl/core/primary_hand.py` (D9, D10):
+- [X] T047 Write primary-hand lock and jump rejection in `src/gescrtl/core/primary_hand.py` (D9, D10):
   - `PrimaryHand.select(frame) -> Hand | None` with nearest-wrist continuity within `max_hand_jump`.
   - Lock at resume completion: the engine passes the hand that held G6. In Paused, track the candidate hand that is holding G6.
   - Reacquire nearest on return.
   - Replace the T013 stub in `engine.py`.
   - Done when: T045 and T046 pass.
-- [ ] T048 Add camera recovery to `src/gescrtl/tracking/camera.py` + `src/gescrtl/app.py` (D11, H2):
+- [X] T048 Add camera recovery to `src/gescrtl/tracking/camera.py` + `src/gescrtl/app.py` (D11, H2):
   - No frame for 1 s or a `read()` failure → enqueue `CameraLost(cause)`.
   - If the open fails while the device still exists, the cause is "in use by another app"; otherwise "disconnected".
   - Retry the open every 2 s → `CameraBack`.
   - Never retry while Inactive.
   - Unit test `tests/unit/test_camera_recovery.py` uses a fake `VideoCapture` factory: it fails reads, then succeeds; assert the command sequence and the retry timing with an injected clock.
-- [ ] T049 [P] Write the benchmark replay mode in `src/gescrtl/tools/bench.py` (D18, H4):
+- [X] T049 [P] Write the benchmark replay mode in `src/gescrtl/tools/bench.py` (D18, H4):
   - `--replay GLOB` runs each file through `Engine`.
   - The scenario comes from the header `scenario`.
   - It counts consequential events (Click, ButtonDown, Scroll, and Resume transitions) per scenario.
   - It reports false triggers per minute for the `idle|typing|talking|second-person` scenarios.
   - Exit code 1 if any of those scenarios has a count above 0.
   - It prints a markdown table.
-- [ ] T050 Write the benchmark live mode in `src/gescrtl/tools/bench.py` (FR-032):
+- [X] T050 Write the benchmark live mode in `src/gescrtl/tools/bench.py` (FR-032):
   - `--live SECONDS` runs the real pipeline with a `NullInput` backend: it counts events and sends no OS input.
   - It reports capture→engine-done p50/p95, tracking FPS, and process CPU% (psutil, normalized to total CPU) for Active and Paused/no-hand. Use `--paused` to start Paused.
   - It prints a markdown table.

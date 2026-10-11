@@ -31,6 +31,7 @@ class Camera:
         self._t_ns = 0
         self._seq = 0
         self._stop = threading.Event()
+        self.last_frame_ns = 0  # when the last good frame arrived (or the camera started)
 
     @property
     def running(self) -> bool:
@@ -43,6 +44,7 @@ class Camera:
         self._cap = self._open()
         self._frame = None
         self._seq = 0
+        self.last_frame_ns = time.perf_counter_ns()
         self._stop.clear()
         self._thread = threading.Thread(target=self._grab_loop, name="camera", daemon=True)
         self._thread.start()
@@ -88,6 +90,7 @@ class Camera:
             with self._lock:
                 self._frame, self._t_ns = frame, t_ns
                 self._seq += 1
+            self.last_frame_ns = t_ns
 
     def latest(self, last_seq: int) -> tuple[int, Any, int] | None:
         """Return (seq, frame, capture time) if a frame newer than ``last_seq`` exists."""

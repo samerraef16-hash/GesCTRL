@@ -65,12 +65,14 @@ class FakeCamera:
         self.starts = 0
         self.fail_start = fail_start
         self.served = 0
+        self.last_frame_ns = 0
 
     def start(self) -> None:
         if self.fail_start:
             raise CameraError(self.fail_start)
         self.running = True
         self.starts += 1
+        self.last_frame_ns = self.clock.t
 
     def stop(self) -> None:
         self.running = False
@@ -79,6 +81,7 @@ class FakeCamera:
         if last_seq >= len(self.frames):
             return None
         self.clock.t = self.frames[last_seq].t_ns
+        self.last_frame_ns = self.clock.t
         self.served = last_seq + 1
         return last_seq + 1, self.frames[last_seq], self.frames[last_seq].t_ns
 

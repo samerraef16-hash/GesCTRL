@@ -42,6 +42,10 @@ class StageStats:
         with self._lock:
             self._samples.append(timing)
 
+    def reset(self) -> None:
+        with self._lock:
+            self._samples.clear()
+
     def summary(self) -> dict[str, float]:
         with self._lock:
             samples = list(self._samples)

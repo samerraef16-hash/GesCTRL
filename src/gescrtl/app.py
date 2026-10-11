@@ -56,6 +56,8 @@ log = logging.getLogger("gescrtl")
 
 _PAUSED_EVERY_NTH = 3  # Paused processes every 3rd frame: ~10 FPS at a 30 FPS camera
 _MAX_CONSECUTIVE_FAILURES = 5
+_CAMERA_STALL_NS = 1_000_000_000  # no frame for 1 s: the camera is lost
+_CAMERA_RETRY_NS = 2_000_000_000  # try to open it again every 2 s
 
 
 class Tracker(Protocol):
@@ -100,6 +102,9 @@ class Worker(threading.Thread):
         self.recorder: RecordingWriter | None = None  # landmarks and commands only, never images
         self._last_t = 0
         self._camera_failed = False
+        self._next_camera_try_ns = 0
+        self._reopen: threading.Thread | None = None
+        self._reopen_ok: bool | None = None
 
     # -- thread-safe API -----------------------------------------------------------------
 
@@ -146,6 +151,7 @@ class Worker(threading.Thread):
             try:
                 self._drain_commands()
                 self._emit_all(self.engine.tick(self._now()))
+                self._check_camera(self._now())
                 item = self.camera.latest(seq) if self.camera.running else None
                 if item is not None and self._tracker is not None:
                     seq, frame, t_capture = item
@@ -247,7 +253,49 @@ class Worker(threading.Thread):
         except CameraError as exc:
             self._camera_failed = True
             log.warning("camera unavailable: %s", exc.cause)
+            self._next_camera_try_ns = self._now() + _CAMERA_RETRY_NS
             self.post(Command.CAMERA_LOST, exc.cause)
+
+    def _check_camera(self, now: int) -> None:
+        """Camera recovery (H2): detect a stall, then retry the open off the worker thread.
+
+        Opening can block for seconds, and commands (emergency stop) must stay responsive.
+        """
+        if self.engine.state is State.INACTIVE or self._tracker is None:
+            self._camera_failed = False
+            return
+        if not self._camera_failed:
+            if self.camera.running and now - self.camera.last_frame_ns > _CAMERA_STALL_NS:
+                self.camera.stop()
+                self._camera_failed = True
+                self._next_camera_try_ns = now + _CAMERA_RETRY_NS
+                log.warning("camera stopped sending frames")
+                self.post(Command.CAMERA_LOST, "stopped sending frames")
+            return
+        if self._reopen is not None:
+            if self._reopen.is_alive():
+                return
+            self._reopen = None
+            if self._reopen_ok:
+                self._camera_failed = False
+                self.post(Command.CAMERA_BACK)
+            return
+        if now >= self._next_camera_try_ns:
+            self._next_camera_try_ns = (
+                now + _CAMERA_RETRY_NS
+            )  # a try every 2 s, however long it takes
+            self._reopen_ok = None
+            self._reopen = threading.Thread(target=self._try_reopen, name="camera-retry")
+            self._reopen.daemon = True
+            self._reopen.start()
+
+    def _try_reopen(self) -> None:
+        try:
+            self.camera.start()
+            self._reopen_ok = True
+        except CameraError as exc:
+            log.info("camera still unavailable: %s", exc.cause)
+            self._reopen_ok = False
 
     def _fail_safe(self) -> None:
         self.input.release_all()
