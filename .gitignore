@@ -6,3 +6,13 @@ spikes/feasibility/build/
 spikes/feasibility/dist/
 spikes/feasibility/*.spec
 __pycache__/
+
+# Phase 1+
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+models/
+recordings/
