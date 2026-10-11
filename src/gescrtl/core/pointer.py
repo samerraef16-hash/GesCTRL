@@ -59,6 +59,7 @@ class Pointer:
         self._tilt.reset()
         self._history.clear()
         self._phase = _Phase.MOVE
+        self._need_release = True  # a pinch still held after a reset must be released and redone
         self._hold_until_ns = 0
         self._last_left: tuple[int, tuple[float, float]] | None = None
         self._last_right_ns: int | None = None
@@ -145,7 +146,10 @@ class Pointer:
     ) -> list[Event]:
         events: list[Event] = []
         if raw in _PINCH_POSES:
-            return self._start_pinch(raw, pos, t_ns)
+            if not self._need_release:
+                return self._start_pinch(raw, pos, t_ns)
+        else:
+            self._need_release = False
         if stable is Pose.G4_THUMBS_UP:
             self._phase = _Phase.SCROLL  # like pressing the scroll wheel: the tilt now is zero
             self._scroll_anchor = self._tilt_f

@@ -7,10 +7,19 @@ imagery. All methods must run on the Qt main thread; ``UiBridge`` in app.py mars
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
-from gescrtl.core.types import Event, HintsShown, State, StateChanged, Sub
+from gescrtl.core.types import (
+    CueChanged,
+    CueKind,
+    Event,
+    HintsShown,
+    MoveCursor,
+    State,
+    StateChanged,
+    Sub,
+)
 from gescrtl.platform.win_window import make_click_through
 
 GREY = QColor(120, 120, 130)
@@ -136,14 +145,107 @@ class Pill(QWidget):
                 y += line
 
 
+CUE_SIZE = 48
+
+
+class CursorCue(QWidget):
+    """48 px click-through indicator centred on the cursor (D14): what the next gesture does.
+
+    Ring = ready, arc = pinch closing, flash = click, filled = drag, arrow = scroll direction,
+    dashed = cursor held. Redraws only when a cue or the cursor position changes.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(None, _FLAGS)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.resize(CUE_SIZE, CUE_SIZE)
+        self._kind = CueKind.HIDDEN
+        self._progress = 0.0
+        self._center = (0, 0)
+        make_click_through(int(self.winId()))
+
+    def move_to(self, nx: float, ny: float) -> None:
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        geo = screen.geometry()
+        cx = geo.left() + round(nx * (geo.width() - 1))
+        cy = geo.top() + round(ny * (geo.height() - 1))
+        self._center = (cx, cy)
+        self.move(cx - CUE_SIZE // 2, cy - CUE_SIZE // 2)
+
+    def set_cue(self, kind: CueKind, progress: float) -> None:
+        self._kind, self._progress = kind, progress
+        if kind is CueKind.HIDDEN:
+            self.hide()
+            return
+        if not self.isVisible():
+            self.show()
+        self.update()
+
+    def paintEvent(self, _event: object) -> None:
+        if self._kind is CueKind.HIDDEN:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        box = QRectF(6, 6, CUE_SIZE - 12, CUE_SIZE - 12)
+        k, prog = self._kind, self._progress
+
+        def pen(color: QColor, width: float = 3.0, dashed: bool = False) -> QPen:
+            pn = QPen(color, width)
+            if dashed:
+                pn.setStyle(Qt.PenStyle.DashLine)
+            return pn
+
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        if k is CueKind.READY:
+            p.setPen(pen(QColor(255, 255, 255, 150), 2))
+            p.drawEllipse(box)
+        elif k is CueKind.PINCH:
+            p.setPen(pen(QColor(255, 255, 255, 90), 2))
+            p.drawEllipse(box)
+            p.setPen(pen(GREEN, 4))
+            p.drawArc(box, 90 * 16, -round(360 * 16 * max(prog, 0.05)))
+        elif k is CueKind.CLICK:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 220))
+            p.drawEllipse(box.adjusted(-2, -2, 2, 2))
+        elif k is CueKind.DRAG:
+            p.setPen(pen(GREEN, 3))
+            p.setBrush(QColor(46, 160, 90, 170))
+            p.drawEllipse(box)
+        elif k is CueKind.SCROLL:
+            p.setPen(pen(QColor(255, 255, 255, 200), 2))
+            p.drawEllipse(box)
+            mid, up = CUE_SIZE / 2, prog >= 0
+            strength = abs(prog)
+            p.setPen(pen(AMBER if strength > 0 else QColor(255, 255, 255, 120), 3))
+            for tip_y, base_y, active in ((11, 19, up), (CUE_SIZE - 11, CUE_SIZE - 19, not up)):
+                if strength == 0 or active:
+                    p.drawLine(round(mid - 6), base_y, round(mid), tip_y)
+                    p.drawLine(round(mid + 6), base_y, round(mid), tip_y)
+        elif k is CueKind.CLUTCH:
+            p.setPen(pen(QColor(255, 255, 255, 190), 2, dashed=True))
+            p.drawEllipse(box)
+
+
 class Hud:
     """Routes core events to the on-screen widgets."""
 
     def __init__(self, hint_ms: int = 3000) -> None:
         self.pill = Pill(hint_ms)
+        self.cue = CursorCue()
 
     def handle(self, event: Event) -> None:
-        if isinstance(event, StateChanged):
+        if isinstance(event, MoveCursor):
+            self.cue.move_to(event.nx, event.ny)
+        elif isinstance(event, CueChanged):
+            self.cue.set_cue(event.kind, event.progress)
+        elif isinstance(event, StateChanged):
+            if event.state is not State.ACTIVE:
+                self.cue.set_cue(CueKind.HIDDEN, 0.0)
             if event.state is State.INACTIVE or not event.hud_text:
                 self.pill.hide()
                 return
@@ -158,3 +260,4 @@ class Hud:
 
     def close(self) -> None:
         self.pill.close()
+        self.cue.close()

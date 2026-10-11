@@ -39,6 +39,32 @@ def test_hud_follows_state_events(qapp):
     hud.close()
 
 
+def test_cursor_cue_follows_the_cursor_and_hides_when_not_active(qapp):
+    from gescrtl.core.types import CueChanged, CueKind, MoveCursor
+
+    hud = Hud()
+    hud.handle(StateChanged(State.ACTIVE, Sub.NORMAL, "Pointer"))
+    hud.handle(MoveCursor(0.5, 0.5))
+    cues = [
+        (CueKind.READY, 0.0),
+        (CueKind.PINCH, 0.6),
+        (CueKind.CLICK, 0.0),
+        (CueKind.DRAG, 0.0),
+        (CueKind.SCROLL, -0.5),
+        (CueKind.CLUTCH, 0.0),
+    ]
+    for kind, prog in cues:
+        hud.handle(CueChanged(kind, prog))
+        assert hud.cue.isVisible()
+        hud.cue.grab()  # paints without raising
+    centre = hud.cue.geometry().center()
+    hud.handle(MoveCursor(0.25, 0.75))
+    assert hud.cue.geometry().center() != centre
+    hud.handle(StateChanged(State.PAUSED, Sub.NONE, "Paused"))
+    assert not hud.cue.isVisible()
+    hud.close()
+
+
 def test_style_never_relies_on_colour_alone():
     colour, icon = style_for(State.TRACKING_LOST, Sub.CAMERA_UNAVAILABLE, "Camera unavailable")
     assert icon  # a warning icon accompanies the colour; the text is always drawn too

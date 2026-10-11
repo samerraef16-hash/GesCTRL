@@ -230,7 +230,7 @@ Conventions:
 
 **Independent Test**: a 48 px target page: click, double-click, and right-click succeed, and there are no accidental clicks.
 
-- [ ] T027 [P] [US2] Write `tests/replay/test_us2_clicks.py`:
+- [X] T027 [P] [US2] Write `tests/replay/test_us2_clicks.py`:
   - **Tap**: G2 for 150 ms → exactly one `Click(left)`, at the position from `pinch_lookback_frames` before the stable onset. The hand moves during the pinch; assert that the position is still the pre-pinch one.
   - **Double-click**: two taps 250 ms apart with a small hand drift → two `Click(left)`, the second at the first click's position.
   - **Two taps too far apart in time**: 700 ms apart → two clicks, and the second uses its own position.
@@ -238,7 +238,7 @@ Conventions:
   - **Hover flicker**: a ratio oscillating around 0.25–0.35 never clicks.
   - **Low-confidence pinch**: score 0.3 → no click.
   - **Cue sequence**: READY → PINCH with increasing progress → CLICK → READY.
-- [ ] T028 [US2] Implement clicks in `src/gescrtl/core/pointer.py` (D5):
+- [X] T028 [US2] Implement clicks in `src/gescrtl/core/pointer.py` (D5):
   - At the stable G2/G3 onset, freeze the cursor at the lookback position for `click_stabilize_ms`. The cursor stays frozen until release or drag start.
   - Releasing before `drag_hold_ms` → `Click`.
   - Double-click snap: if the onset falls within `double_click_ms` and `double_click_dist` of the last left click, use the last click position.
@@ -248,12 +248,12 @@ Conventions:
 - [X] T029 [US2] Implement the platform click path in `src/gescrtl/platform/win_input.py`:
   - `click(b)` = down+up in one `SendInput` call, at the current cursor position. The engine has already emitted `MoveCursor` to the frozen point.
   - Feed `double_click_ms()` into CoreConfig in `app.py` (done in T025; `double_click_dist` stays a config value).
-- [ ] T030 [P] [US2] Add the cursor cue to `src/gescrtl/platform/hud.py` (D14):
+- [X] T030 [P] [US2] Add the cursor cue to `src/gescrtl/platform/hud.py` (D14):
   - A second click-through window, 48 px, centred on the last `MoveCursor` position converted to pixels via the primary monitor rect.
   - Draws: ring (READY), arc (PINCH progress), flash for 150 ms (CLICK), filled (DRAG), arrows (SCROLL), dashed (CLUTCH).
   - Hidden on HIDDEN.
   - Updates on each `CueChanged`/`MoveCursor` event with no timer polling.
-- [ ] T031 [P] [US2] Write the target page tool in `src/gescrtl/tools/targets.py`:
+- [X] T031 [P] [US2] Write the target page tool in `src/gescrtl/tools/targets.py`:
   - A PySide6 full-screen window with random 24/48/96 px targets.
   - It logs hit/miss for left, double, and right clicks to `recordings/<ts>_targets.csv` (numbers only).
   - Done when: it gives a summary of hit rate per size. It is used for SC-005.
@@ -266,7 +266,7 @@ Conventions:
 
 **Independent Test**: drag a file between folders; scroll a long document to the end and back.
 
-- [ ] T032 [P] [US3] Write `tests/replay/test_us3_drag.py`:
+- [X] T032 [P] [US3] Write `tests/replay/test_us3_drag.py`:
   - A G2 held for 400 ms + move → `ButtonDown(left)` at the frozen position, followed by `MoveCursor`s and a `ButtonUp` on release. No `Click`.
   - Drag + hand missing for `loss_frames` → `ReleaseAll`/`ButtonUp`, no re-press when the hand returns still pinching. A new drag requires a release and a fresh pinch.
   - A drag + 2-frame gap (less than `loss_frames`) → the drag continues.
@@ -277,7 +277,7 @@ Conventions:
   - Neutral is where the pose started (formed tilted → no scroll until tilted further); a vertical thumbs-up does not run away; no scrolling while settling.
   - Speed independent of FPS (30 vs 60); whole `scroll_step` events; no `MoveCursor` while scrolling; cue shows signed strength.
   - Stops when the pose ends, on pause, on hand loss, and with low confidence.
-- [ ] T034 [US3] Implement drag in `src/gescrtl/core/pointer.py` (D5):
+- [X] T034 [US3] Implement drag in `src/gescrtl/core/pointer.py` (D5):
   - G2 stable for `drag_hold_ms` → `ButtonDown` at the frozen point, then unfreeze and follow the hand.
   - Release → `ButtonUp`.
   - Any `ReleaseAll` clears the drag state, and there is no automatic re-press.
