@@ -335,18 +335,18 @@ Conventions:
 
 **Independent Test**: record a 30 s session with clicks, a drag, a scroll, and a hand loss; replay it twice; the outputs are identical; no camera is used and no OS input is sent.
 
-- [ ] T041 [P] [US5] Write `tests/replay/test_us5_replay_cli.py`:
+- [X] T041 [P] [US5] Write `tests/replay/test_us5_replay_cli.py`:
   - Run `gescrtl.replay.main([fixture])`, capture stdout twice, and assert the two outputs are equal.
   - Monkeypatch-assert that `gescrtl.platform` and `cv2` are never imported, by checking `sys.modules` before and after the run in a subprocess.
-- [ ] T042 [US5] Add recording to `src/gescrtl/app.py` and `src/gescrtl/__main__.py`:
+- [X] T042 [US5] Add recording to `src/gescrtl/app.py` and `src/gescrtl/__main__.py`:
   - `--record NAME` writes `recordings/<YYYYmmdd-HHMMSS>_<NAME>.jsonl` via `recording/jsonl.py`. It contains every tracked `HandFrame` and every command, including camera events, with their timestamps.
   - The HUD pill shows "● REC".
   - No image data is written.
-- [ ] T043 [US5] Write the replay CLI in `src/gescrtl/replay.py`:
+- [X] T043 [US5] Write the replay CLI in `src/gescrtl/replay.py`:
   - `python -m gescrtl.replay FILE [--settings PATH]` feeds the file to `Engine`, using `CoreConfig` defaults or the given settings.
   - It prints one line per event, `t_ms<TAB>EventRepr`, and a summary of counts per event type.
   - It uses no camera, no Qt, and no OS input.
-- [ ] T044 [US5] Document how to turn a misfire into a test in `tests/fixtures/README.md`:
+- [X] T044 [US5] Document how to turn a misfire into a test in `tests/fixtures/README.md`:
   1. Record the misfire.
   2. Trim it with `python -m gescrtl.replay FILE --slice START_MS END_MS --out tests/fixtures/NAME.jsonl`. Add `--slice` to T043.
   3. Write a failing test asserting no misfire.

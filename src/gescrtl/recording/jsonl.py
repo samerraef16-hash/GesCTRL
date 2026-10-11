@@ -75,6 +75,7 @@ class RecordingWriter:
 
     def command(self, t_ns: int, cmd: Command, arg: str = "") -> None:
         self._write({"type": "command", "t_ns": t_ns, "cmd": cmd.name, "arg": arg})
+        self._fh.flush()  # commands are rare: keep them on disk even if the app is killed
 
     def close(self) -> None:
         self._fh.close()

@@ -217,3 +217,36 @@ def test_preview_hook_only_fires_when_enabled_and_paused_tracks_every_frame():
     assert off_offered == 0
     assert off_calls < len(frames) * 0.5  # Paused: roughly every third frame
     assert on_offered == on_calls == len(frames)  # preview: live, every frame
+
+
+def test_worker_recording_replays_to_the_same_events(tmp_path):
+    from gescrtl.recording import jsonl
+    from gescrtl.recording.jsonl import RecordingWriter
+    from gescrtl.replay import replay
+
+    frames = resume_and_move_frames()
+    clock, inp = FakeClock(), FakeInput()
+    cam = FakeCamera(frames, clock)
+    path = tmp_path / "rec.jsonl"
+    seen: list = []
+    w = Worker(Engine(), inp, cam, seen.append, StageStats(), lambda: FakeTracker(), clock)
+    w.recorder = RecordingWriter(path)
+    w.start()
+    try:
+        assert wait_for(lambda: cam.exhausted)
+        w.post(Command.PAUSE)
+        assert wait_for(lambda: w.engine.state is State.PAUSED)
+    finally:
+        w.stop()
+        w.join(3)
+    items = list(jsonl.read(path))
+    assert 0 < sum(isinstance(i, HandFrame) for i in items) <= len(frames)
+    assert any(getattr(i, "cmd", None) is Command.PAUSE for i in items)
+    live = [e for e in seen if type(e).__name__ in ("MoveCursor", "Click", "ReleaseAll")]
+    replayed = [
+        e for _, e in replay(items) if type(e).__name__ in ("MoveCursor", "Click", "ReleaseAll")
+    ]
+    assert live and [type(e) for e in replayed] == [type(e) for e in live]
+    for a, b in zip(live, replayed, strict=True):  # landmarks are stored to 5 decimals
+        if hasattr(a, "nx"):
+            assert (a.nx, a.ny) == pytest.approx((b.nx, b.ny), abs=1e-3)

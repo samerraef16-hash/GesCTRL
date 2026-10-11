@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Protocol
 
 import cv2
@@ -45,6 +46,7 @@ from gescrtl.platform.tray import Tray
 from gescrtl.platform.win_exit import install_exit_handlers
 from gescrtl.platform.win_hotkeys import WinHotkeys
 from gescrtl.platform.win_input import WinInput, enable_dpi_awareness
+from gescrtl.recording.jsonl import RecordingWriter
 from gescrtl.stats import FrameTiming, StageStats
 from gescrtl.tracking.camera import Camera, CameraError
 from gescrtl.tracking.mediapipe_adapter import MediaPipeTracker
@@ -94,6 +96,7 @@ class Worker(threading.Thread):
         self._q: queue.Queue[tuple[Command, str] | None] = queue.Queue()
         self._stop_event = threading.Event()
         self._tracker: Tracker | None = None
+        self.recorder: RecordingWriter | None = None  # landmarks and commands only, never images
         self._last_t = 0
         self._camera_failed = False
 
@@ -127,6 +130,8 @@ class Worker(threading.Thread):
             self.camera.stop()
             if self._tracker is not None:
                 self._tracker.close()
+            if self.recorder is not None:
+                self.recorder.close()
 
     def _loop(self) -> None:
         seq = 0
@@ -164,12 +169,18 @@ class Worker(threading.Thread):
             if item is None:
                 return
             cmd, arg = item
-            self._emit_all(self.engine.command(cmd, self._now(), arg))
+            self._run_command(cmd, arg)
             self._sync_camera()
             try:
                 item = self._q.get_nowait()
             except queue.Empty:
                 return
+
+    def _run_command(self, cmd: Command, arg: str = "") -> None:
+        t = self._now()
+        if self.recorder is not None:
+            self.recorder.command(t, cmd, arg)
+        self._emit_all(self.engine.command(cmd, t, arg))
 
     def _process(self, frame: Any, t_capture: int) -> None:
         tracker = self._tracker
@@ -179,6 +190,8 @@ class Worker(threading.Thread):
         t1 = time.perf_counter_ns()
         t_engine = max(t_capture, self._last_t)
         self._last_t = t_engine
+        if self.recorder is not None:
+            self.recorder.frame(dataclasses.replace(hand_frame, t_ns=t_engine))
         events = self.engine.step(hand_frame, t_engine)
         t2 = time.perf_counter_ns()
         self._emit_all(events)
@@ -232,7 +245,7 @@ class Worker(threading.Thread):
     def _fail_safe(self) -> None:
         self.input.release_all()
         try:
-            self._emit_all(self.engine.command(Command.PAUSE, self._now()))
+            self._run_command(Command.PAUSE)
             self.ui(Warning("Internal error: GesCRTL paused. See the console for details."))
         except Exception:
             log.exception("fail-safe pause failed")
@@ -248,6 +261,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--scroll-deadzone", type=float, help="thumb tilt ignored, degrees (default 8)"
+    )
+    parser.add_argument(
+        "--record",
+        metavar="NAME",
+        help="record landmarks and commands (no images) to recordings/<time>_NAME.jsonl",
     )
     parser.add_argument(
         "--beta", type=float, help="One Euro beta; higher = less lag (default 0.007)"
@@ -284,6 +302,15 @@ def main(argv: list[str] | None = None) -> int:
     bridge = UiBridge()
     worker = Worker(engine, input_backend, camera, bridge.event.emit, stats)
     preview = PreviewWindow(cfg.active_region)
+    if args.record:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in args.record)
+        path = Path("recordings") / f"{stamp}_{safe}.jsonl"
+        worker.recorder = RecordingWriter(
+            path, scenario=args.record, width=camera.width, height=camera.height, fps=camera.fps
+        )
+        hud.set_recording(True)
+        log.info("recording landmarks (no images) to %s", path)
 
     # -- camera preview: frames are shown on screen only, never saved ------------------------
     in_flight = threading.Event()  # at most one preview frame waits for the Qt thread
@@ -366,4 +393,5 @@ def main(argv: list[str] | None = None) -> int:
         return qt.exec()
     finally:
         worker.stop()
+        worker.join(2.0)  # lets the worker close the recording
         input_backend.release_all()
