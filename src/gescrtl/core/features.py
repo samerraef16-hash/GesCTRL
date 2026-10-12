@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from gescrtl.core.types import Hand, Landmark
+from gescrtl.core.types import DEFAULT_ASPECT, Hand, Landmark
 
 WRIST = 0
 THUMB_MCP = 2
@@ -47,6 +47,9 @@ FLAT_EXTENDED_MIN = 1.25
 FLAT_THUMB_MAX = 0.5
 FLAT_UPRIGHT_MAX_DEG = 25.0
 FLAT_PINCH_CLEAR = 0.45
+# Index point (presentation laser): the thumb must be tucked *and* clear of the index fingertip,
+# so a thumb on its way to a pinch keeps the hand "relaxed" instead of flickering to a point.
+INDEX_POINT_THUMB_CLEAR = 0.6
 PINCH_MIN_REACH = 0.9  # a pinching fingertip must not be curled into the palm (tip/mcp)
 
 
@@ -62,6 +65,7 @@ class Features:
     thumb_out: float  # thumb tip to palm center, in hand sizes
     thumb_tilt_deg: float  # thumb MCP -> tip angle above horizontal; up in the image is positive
     upright_deg: float  # wrist -> middle knuckle angle away from straight up (0 = upright)
+    aspect: float = DEFAULT_ASPECT  # frame width / height the distances were corrected with
 
     def extended(self, finger: int) -> bool:
         return self.curl[finger] > EXTENDED_MIN
@@ -97,6 +101,26 @@ class Features:
     def thumbs_up(self) -> bool:
         """Thumb out and well away from the index fingertip (fingers are checked separately)."""
         return self.thumb_extended and self.pinch_index > THUMBSUP_MIN_TIP_DIST
+
+    @property
+    def call_me(self) -> bool:
+        """Thumb and pinky out, index/middle/ring curled. The pinky must be clearly out (not in
+        the ambiguous band), so a scroll pose with a loose pinky never counts."""
+        return (
+            all(self.curled(i) for i in range(3))
+            and self.extended(3)
+            and self.thumbs_up  # thumb out and well away from the index fingertip
+        )
+
+    @property
+    def index_point(self) -> bool:
+        """Index finger alone: middle, ring, pinky curled, thumb tucked and clear of the index."""
+        return (
+            self.extended(0)
+            and all(self.curled(i) for i in (1, 2, 3))
+            and not self.thumb_extended
+            and self.pinch_index > INDEX_POINT_THUMB_CLEAR
+        )
 
 
 def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -145,4 +169,5 @@ def compute(hand: Hand, aspect: float) -> Features | None:
         upright_deg=math.degrees(
             math.atan2(abs(pts[MIDDLE_MCP][0] - pts[WRIST][0]), pts[WRIST][1] - pts[MIDDLE_MCP][1])
         ),
+        aspect=aspect,
     )

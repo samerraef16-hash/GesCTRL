@@ -65,3 +65,33 @@ def test_stats_reset_and_live_table():
     st.reset()
     assert st.summary() == {"frames": 0}
     assert "| Active | 5 |" in bench.live_table("Active", 5, {"frames": 3}, 1.5)
+
+
+def test_mode_overlay_action_and_level_events_count_as_false_triggers(
+    tmp_path, capsys, monkeypatch
+):
+    from gescrtl.core.types import (
+        Action,
+        Level,
+        LevelStep,
+        Mode,
+        ModeChanged,
+        OverlayKind,
+        OverlayShown,
+        SystemAction,
+    )
+
+    record(tmp_path / "d_idle.jsonl", "idle", lambda s: s.hold(Pose.G1_RELAXED, 1000))
+    events = [
+        ModeChanged(Mode.MEDIA),
+        OverlayShown(OverlayKind.MODE_MENU),
+        OverlayShown(OverlayKind.LEVELS),
+        SystemAction(Action.MUTE),
+        LevelStep(Level.VOLUME, 2),
+    ]
+    monkeypatch.setattr(bench, "replay", lambda items, resume=False: [(0, e) for e in events])
+    row = bench.bench_file(tmp_path / "d_idle.jsonl")
+    assert (row.modes, row.overlays, row.actions, row.levels) == (1, 2, 1, 1)
+    assert row.total == 5 and row.must_be_quiet
+    assert run_replay(str(tmp_path / "*.jsonl")) == 1
+    assert "FAIL" in capsys.readouterr().out

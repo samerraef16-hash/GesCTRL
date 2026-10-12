@@ -2,9 +2,9 @@
 
 ``python -m gescrtl.tools.bench --replay "recordings/*idle*.jsonl"``
     Replays each recording through the core and counts consequential events (clicks, drags,
-    scrolls, resumes). The scenario comes from the recording's header (the NAME given to
-    ``--record``). A recording of an idle/typing/talking/second-person scenario must produce
-    none: otherwise the exit code is 1.
+    scrolls, resumes, mode changes, overlays opened, system actions, level steps). The scenario
+    comes from the recording's header (the NAME given to ``--record``). A recording of an
+    idle/typing/talking/second-person scenario must produce none: otherwise the exit code is 1.
 
 ``python -m gescrtl.tools.bench --live 20 [--paused]``
     Runs the real camera and tracker for N seconds with a null input backend (no OS input is
@@ -20,7 +20,19 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from gescrtl.core.types import ButtonDown, Click, Command, Event, Scroll, State, StateChanged
+from gescrtl.core.types import (
+    ButtonDown,
+    Click,
+    Command,
+    Event,
+    LevelStep,
+    ModeChanged,
+    OverlayShown,
+    Scroll,
+    State,
+    StateChanged,
+    SystemAction,
+)
 from gescrtl.recording import jsonl
 from gescrtl.replay import replay
 
@@ -37,10 +49,23 @@ class ReplayRow:
     drags: int
     scrolls: int
     resumes: int
+    modes: int = 0  # mode changes
+    overlays: int = 0  # mode menu / level panel / media grid shown
+    actions: int = 0  # keys sent to the system (slides, media, screenshot, app switch)
+    levels: int = 0  # volume / brightness steps
 
     @property
     def total(self) -> int:
-        return self.clicks + self.drags + self.scrolls + self.resumes
+        return (
+            self.clicks
+            + self.drags
+            + self.scrolls
+            + self.resumes
+            + self.modes
+            + self.overlays
+            + self.actions
+            + self.levels
+        )
 
     @property
     def per_minute(self) -> float:
@@ -70,19 +95,25 @@ def bench_file(path: Path) -> ReplayRow:
         drags=count(active, ButtonDown),
         scrolls=count(active, Scroll),
         resumes=resumes,
+        modes=count(active, ModeChanged),
+        overlays=count(active, OverlayShown),
+        actions=count(active, SystemAction),
+        levels=count(active, LevelStep),
     )
 
 
 def replay_table(rows: list[ReplayRow]) -> str:
     lines = [
-        "| file | scenario | seconds | clicks | drags | scrolls | resumes | per minute | verdict |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| file | scenario | seconds | clicks | drags | scrolls | resumes | modes | overlays "
+        "| actions | levels | per minute | verdict |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         verdict = ("FAIL" if r.total else "ok") if r.must_be_quiet else "-"
         lines.append(
             f"| {r.file} | {r.scenario or '?'} | {r.seconds:.1f} | {r.clicks} | {r.drags} | "
-            f"{r.scrolls} | {r.resumes} | {r.per_minute:.1f} | {verdict} |"
+            f"{r.scrolls} | {r.resumes} | {r.modes} | {r.overlays} | {r.actions} | {r.levels} | "
+            f"{r.per_minute:.1f} | {verdict} |"
         )
     return "\n".join(lines)
 
@@ -123,6 +154,10 @@ class NullInput:
 
     def scroll(self, d: int) -> None:
         self._n("scroll")
+
+    def system_action(self, action: object) -> bool:
+        self._n("system_action")
+        return True
 
     def release_all(self) -> None:
         self._n("release_all")

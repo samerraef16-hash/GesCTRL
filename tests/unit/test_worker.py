@@ -27,6 +27,7 @@ class FakeInput:
     def __init__(self) -> None:
         self.log: list[tuple] = []
         self.releases = 0
+        self.action_supported = True
         self.lock = threading.Lock()
 
     def move(self, nx: float, ny: float) -> None:
@@ -43,6 +44,10 @@ class FakeInput:
 
     def scroll(self, d: int) -> None:
         self.log.append(("scroll", d))
+
+    def system_action(self, action) -> bool:
+        self.log.append(("action", action))
+        return self.action_supported
 
     def release_all(self) -> None:
         with self.lock:
@@ -272,3 +277,92 @@ def test_worker_applies_new_settings_with_release_first_and_keeps_state():
     finally:
         w.stop()
         w.join(3)
+
+
+def idle_worker():
+    inp = FakeInput()
+    ui: list = []
+    w = Worker(
+        Engine(), inp, FakeCamera([], FakeClock(), ""), ui.append, StageStats(), lambda: None
+    )
+    return w, inp, ui
+
+
+def test_system_action_event_reaches_the_input_backend_and_the_hud():
+    from gescrtl.core.types import Action, SystemAction
+
+    w, inp, ui = idle_worker()
+    w._emit_all([SystemAction(Action.SLIDE_NEXT)])
+    assert ("action", Action.SLIDE_NEXT) in inp.log
+    assert SystemAction(Action.SLIDE_NEXT) in ui
+
+
+def test_unsupported_action_shows_a_warning():
+    from gescrtl.core.types import Action, SystemAction
+    from gescrtl.core.types import Warning as UiWarning
+
+    w, inp, ui = idle_worker()
+    inp.action_supported = False
+    w._emit_all([SystemAction(Action.SHOW_START)])
+    warnings = [e for e in ui if isinstance(e, UiWarning)]
+    assert warnings and "not supported" in warnings[0].text
+
+
+def test_an_exception_in_an_action_is_logged_not_raised_and_later_events_still_run(caplog):
+    from gescrtl.core.types import Action, ReleaseAll, SystemAction
+
+    w, inp, ui = idle_worker()
+
+    def boom(action):
+        raise OSError("blocked")
+
+    inp.system_action = boom
+    with caplog.at_level("ERROR", logger="gescrtl"):
+        w._emit_all([SystemAction(Action.MUTE), ReleaseAll("test")])
+    assert inp.releases == 1  # the release after the failing action still happened
+    assert any("MUTE" in r.getMessage() or "blocked" in r.getMessage() for r in caplog.records)
+
+
+class FakeLevels:
+    def __init__(self, fail: bool = False) -> None:
+        self.steps: list[tuple] = []
+        self.fail = fail
+
+    def step(self, level, delta) -> None:
+        if self.fail:
+            raise OSError("no audio device")
+        self.steps.append((level, delta))
+
+    def read(self, level):
+        return 50
+
+    def stop(self) -> None:
+        pass
+
+
+def test_level_step_event_reaches_the_level_backend_and_the_hud():
+    from gescrtl.core.types import Level, LevelStep
+
+    w, inp, ui = idle_worker()
+    w.levels = FakeLevels()
+    w._emit_all([LevelStep(Level.VOLUME, 2), LevelStep(Level.BRIGHTNESS, -2)])
+    assert w.levels.steps == [(Level.VOLUME, 2), (Level.BRIGHTNESS, -2)]
+    assert LevelStep(Level.VOLUME, 2) in ui
+
+
+def test_a_failing_level_backend_is_logged_and_later_events_still_run(caplog):
+    from gescrtl.core.types import Level, LevelStep, ReleaseAll
+
+    w, inp, ui = idle_worker()
+    w.levels = FakeLevels(fail=True)
+    with caplog.at_level("ERROR", logger="gescrtl"):
+        w._emit_all([LevelStep(Level.VOLUME, 2), ReleaseAll("x")])
+    assert inp.releases == 1 and "level step" in caplog.text
+
+
+def test_level_steps_without_a_backend_are_ignored():
+    from gescrtl.core.types import Level, LevelStep
+
+    w, inp, ui = idle_worker()
+    w._emit_all([LevelStep(Level.VOLUME, 2)])
+    assert LevelStep(Level.VOLUME, 2) in ui

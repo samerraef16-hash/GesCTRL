@@ -13,6 +13,7 @@ dependencies = [
     "PySide6",
     "pydantic>=2",
     "psutil",
+    "pycaw",
 ]
 
 [project.optional-dependencies]

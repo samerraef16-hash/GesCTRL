@@ -32,15 +32,20 @@ from gescrtl.core.types import (
     Command,
     Event,
     HandFrame,
+    LevelReading,
+    LevelStep,
     MoveCursor,
     ReleaseAll,
     Scroll,
     State,
     StateChanged,
+    SystemAction,
     Warning,
 )
 from gescrtl.platform.hud import Hud
-from gescrtl.platform.interfaces import InputBackend
+from gescrtl.platform.interfaces import InputBackend, LevelBackend
+from gescrtl.platform.levels import WinLevels
+from gescrtl.platform.presenter_keys import make_keys_for
 from gescrtl.platform.preview import PreviewWindow
 from gescrtl.platform.tray import Tray
 from gescrtl.platform.win_exit import install_exit_handlers
@@ -93,6 +98,7 @@ class Worker(threading.Thread):
         self.ui = ui
         self.stats = stats
         self.on_fatal: Callable[[], None] = lambda: None
+        self.levels: LevelBackend | None = None  # volume / brightness, set by main
         # opt-in camera preview: while set, Paused tracks every frame so the view is live
         self.preview_enabled = threading.Event()
         self.on_preview: Callable[[Any, HandFrame], None] | None = None
@@ -237,7 +243,30 @@ class Worker(threading.Thread):
                 self.input.scroll(e.delta)
             elif isinstance(e, ReleaseAll):
                 self.input.release_all()
+            elif isinstance(e, SystemAction):
+                self._system_action(e)
+            elif isinstance(e, LevelStep):
+                self._level_step(e)
             self.ui(e)
+
+    def _level_step(self, e: LevelStep) -> None:
+        """Volume / brightness never raise into the worker loop either."""
+        if self.levels is None:
+            return
+        try:
+            self.levels.step(e.level, e.delta)
+        except Exception:
+            log.exception("level step %s %+d failed", e.level.name, e.delta)
+
+    def _system_action(self, e: SystemAction) -> None:
+        """Keys never raise into the worker loop: a failure is logged, the rest still runs."""
+        try:
+            supported = self.input.system_action(e.action)
+        except Exception:
+            log.exception("system action %s failed", e.action.name)
+            return
+        if not supported:
+            self.ui(Warning("Start/end not supported in this app"))
 
     def _sync_camera(self) -> None:
         """Camera runs unless Inactive; releasing it is one action away (constitution VI)."""
@@ -335,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     log.info("DPI awareness: %s", enable_dpi_awareness())  # before any window exists
 
-    input_backend = WinInput()
+    input_backend = WinInput(keys_for=make_keys_for())
     install_exit_handlers(input_backend.release_all)
 
     qt = QApplication(sys.argv[:1])
@@ -362,6 +391,8 @@ def main(argv: list[str] | None = None) -> int:
     hud = Hud(cfg.hint_display_ms)
     bridge = UiBridge()
     worker = Worker(engine, input_backend, camera, bridge.event.emit, stats)
+    levels = WinLevels(on_level=lambda level, value: bridge.event.emit(LevelReading(level, value)))
+    worker.levels = levels
     preview = PreviewWindow(cfg.active_region)
     if args.record:
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -412,6 +443,7 @@ def main(argv: list[str] | None = None) -> int:
         preview.hide()
         worker.stop()
         worker.join(3.0)
+        levels.stop()
         hotkeys.stop()
         tray.close()
         hud.close()
@@ -435,7 +467,14 @@ def main(argv: list[str] | None = None) -> int:
     def reset_settings() -> None:
         apply_settings(store.reset(), "Settings reset to defaults")
 
-    tray = Tray(worker.post, reload_settings, reset_settings, quit_app, set_preview)
+    tray = Tray(
+        worker.post,
+        reload_settings,
+        reset_settings,
+        quit_app,
+        set_preview,
+        lambda mode: worker.post(Command.SET_MODE, mode.name),
+    )
     if settings_warnings:
         for w in settings_warnings:
             log.warning("settings: %s", w)

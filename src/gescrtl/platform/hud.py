@@ -15,10 +15,27 @@ from gescrtl.core.types import (
     CueKind,
     Event,
     HintsShown,
+    LevelReading,
+    Mode,
+    ModeChanged,
     MoveCursor,
+    OverlayHidden,
+    OverlayKind,
+    OverlayPointer,
+    OverlayPointerHidden,
+    OverlayShown,
+    PointerStyle,
     State,
     StateChanged,
     Sub,
+)
+from gescrtl.platform.overlays import (
+    OVERLAY_FLAGS,
+    LaserDot,
+    LevelPanelView,
+    MediaGridView,
+    ModeMenuView,
+    SelectRing,
 )
 from gescrtl.platform.win_window import make_click_through
 
@@ -27,14 +44,9 @@ GREEN = QColor(46, 160, 90)
 GREEN_DIM = QColor(46, 120, 80)
 AMBER = QColor(230, 160, 20)
 RED = QColor(210, 60, 60)
+BLUE = QColor(40, 110, 220)
 
-_FLAGS = (
-    Qt.WindowType.FramelessWindowHint
-    | Qt.WindowType.Tool
-    | Qt.WindowType.WindowStaysOnTopHint
-    | Qt.WindowType.WindowTransparentForInput
-    | Qt.WindowType.WindowDoesNotAcceptFocus
-)
+_FLAGS = OVERLAY_FLAGS
 
 
 def style_for(state: State, sub: Sub, text: str) -> tuple[QColor, str]:
@@ -44,6 +56,8 @@ def style_for(state: State, sub: Sub, text: str) -> tuple[QColor, str]:
     if state is State.PAUSED:
         return GREY, "⚠ " if "Camera unavailable" in text else ""
     if state is State.ACTIVE:
+        if sub in (Sub.MODE_MENU, Sub.LEVEL_PANEL):
+            return BLUE, ""
         return (GREEN_DIM if sub is Sub.CLUTCHED else GREEN), ""
     if state is State.TRACKING_LOST:
         return (RED if sub is Sub.CAMERA_UNAVAILABLE else AMBER), "⚠ "
@@ -237,15 +251,51 @@ class Hud:
     def __init__(self, hint_ms: int = 3000) -> None:
         self.pill = Pill(hint_ms)
         self.cue = CursorCue()
+        self.ring = SelectRing()  # points at menu items and action targets
+        self.laser = LaserDot()  # presentation laser pointer
+        self.menu_view = ModeMenuView()
+        self.panel_view = LevelPanelView()
+        self.media_view = MediaGridView()
+        self.mode = Mode.POINTER  # the current mode, for highlighting it in the menu
 
     def handle(self, event: Event) -> None:
         if isinstance(event, MoveCursor):
             self.cue.move_to(event.nx, event.ny)
         elif isinstance(event, CueChanged):
             self.cue.set_cue(event.kind, event.progress)
+        elif isinstance(event, OverlayPointer):
+            marker, other = (
+                (self.ring, self.laser)
+                if event.style is PointerStyle.SELECT
+                else (self.laser, self.ring)
+            )
+            other.hide_marker()
+            marker.show_marker(event.nx, event.ny)
+        elif isinstance(event, OverlayPointerHidden):
+            self.ring.hide_marker()
+            self.laser.hide_marker()
+        elif isinstance(event, ModeChanged):
+            self.mode = event.mode
+        elif isinstance(event, OverlayShown):
+            if event.kind is OverlayKind.MODE_MENU:
+                self.menu_view.show_menu(self.mode, event.highlight)
+            elif event.kind is OverlayKind.LEVELS:
+                self.panel_view.show_panel(event.highlight)
+            elif event.kind is OverlayKind.MEDIA:
+                self.media_view.show_grid(event.highlight, event.pending)
+        elif isinstance(event, LevelReading):
+            self.panel_view.set_value(event.level, event.value)
+        elif isinstance(event, OverlayHidden):
+            if event.kind is OverlayKind.MEDIA:
+                self.media_view.hide()
+                self.ring.hide_marker()
+            else:
+                self._hide_overlays()
         elif isinstance(event, StateChanged):
             if event.state is not State.ACTIVE:
                 self.cue.set_cue(CueKind.HIDDEN, 0.0)
+                self._hide_overlays()
+                self.laser.hide_marker()
             if event.state is State.INACTIVE or not event.hud_text:
                 self.pill.hide()
                 return
@@ -255,9 +305,20 @@ class Hud:
         elif isinstance(event, HintsShown):
             self.pill.show_hints(event.items)
 
+    def _hide_overlays(self) -> None:
+        self.ring.hide_marker()
+        self.menu_view.hide()
+        self.panel_view.hide()
+        self.media_view.hide()
+
     def set_recording(self, on: bool) -> None:
         self.pill.set_badge("● REC" if on else "")
 
     def close(self) -> None:
         self.pill.close()
         self.cue.close()
+        self.ring.close()
+        self.laser.close()
+        self.menu_view.close()
+        self.panel_view.close()
+        self.media_view.close()

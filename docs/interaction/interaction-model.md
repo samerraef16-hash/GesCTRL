@@ -141,7 +141,22 @@ effect, because nothing is acting.
 - While the menu is open, no other input is sent (FR-002a).
 - A single accidental frame cannot switch modes: opening needs the hold time, and switching needs
   an explicit confirmation.
-- In the first release the menu lists all four modes, but only Pointer has gestures.
+- The menu lists all four modes; Keyboard is shown greyed out ("Later") until its spec.
+- The tray **Mode** submenu is the mouse fallback: it sends the `SET_MODE` command (recorded and
+  replayed like any command) and does the same as a menu choice. While Paused or Tracking Lost
+  the new mode applies when Active again.
+- There is one current mode. It starts as Pointer on every launch, survives pause, hand loss,
+  emergency stop and camera loss, and is named in the pill ("Presentation", "Media · Hold").
+
+## Level panel
+
+- Opened by holding "call me" (G9) for 0.5 s from Active · Normal in **any** mode. Everything is
+  released first, then the panel shows Volume and Brightness sliders.
+- Pinch on a slider and move the hand: the change is relative to where the pinch started, in 2 %
+  steps, at most 40 % per second. Release stops it. A fist, G7, or 5 s without a pinch closes it;
+  pause, hand loss and emergency stop close it too.
+- The core only emits `LevelStep`; the platform applies it and reports the real level back.
+  Brightness exists for built-in displays only ("Unavailable" otherwise).
 
 ## Tracking loss
 

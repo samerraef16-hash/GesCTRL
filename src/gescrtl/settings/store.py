@@ -68,6 +68,44 @@ class Settings(BaseModel):
     # Double click snapping distance (normalized screen distance)
     double_click_dist: float = Field(0.02, ge=0.0, le=0.2)
 
+    # Mode menu and level panel
+    menu_hold_ms: int = Field(800, ge=300, le=3000)
+    menu_timeout_ms: int = Field(5000, ge=1000, le=30000)
+    panel_hold_ms: int = Field(500, ge=200, le=3000)
+    panel_timeout_ms: int = Field(5000, ge=1000, le=30000)
+
+    # Presentation swipe (distances in hand sizes, speeds in hand sizes per second)
+    swipe_window_ms: int = Field(350, ge=100, le=1000)
+    swipe_min_frames: int = Field(3, ge=2, le=10)
+    swipe_min_dist: float = Field(1.5, ge=0.3, le=5.0)
+    swipe_max_dy_ratio: float = Field(0.5, ge=0.1, le=1.5)
+    swipe_cooldown_ms: int = Field(600, ge=100, le=5000)
+    swipe_return_block_ms: int = Field(1000, ge=0, le=5000)
+    swipe_rearm_speed: float = Field(1.0, ge=0.1, le=5.0)
+    swipe_rearm_ms: int = Field(100, ge=0, le=1000)
+
+    # Presentation slide show start/end (thumb direction; enter must stay above exit)
+    show_hold_ms: int = Field(1000, ge=300, le=5000)
+    show_cooldown_ms: int = Field(2000, ge=500, le=10000)
+    thumb_dir_enter_deg: float = Field(50.0, ge=20.0, le=80.0)
+    thumb_dir_exit_deg: float = Field(35.0, ge=10.0, le=75.0)
+
+    # Presentation laser pointer
+    laser_min_cutoff: float = Field(0.3, ge=0.05, le=10.0)
+    laser_beta: float = Field(0.002, ge=0.0, le=50.0)
+    laser_grace_ms: int = Field(300, ge=0, le=2000)
+
+    # Level control (volume / brightness)
+    level_step: int = Field(2, ge=1, le=10)
+    level_max_rate: float = Field(40.0, ge=5.0, le=200.0)
+    level_drag_gain: float = Field(1.0, ge=0.2, le=5.0)
+    level_repeat_ms: int = Field(150, ge=50, le=1000)
+
+    # Pointing at on-screen targets
+    action_cooldown_ms: int = Field(400, ge=100, le=5000)
+    confirm_window_ms: int = Field(3000, ge=1000, le=10000)
+    target_margin: float = Field(0.01, ge=0.0, le=0.05)
+
     def to_core_config(self, double_click_ms: int | None = None) -> CoreConfig:
         """The engine config. The double-click time comes from the OS, not from settings."""
         values: dict[str, Any] = self.model_dump()
@@ -114,6 +152,17 @@ def parse(data: Any) -> tuple[Settings, list[str]]:
         defaults = Settings()
         settings = settings.model_copy(
             update={"pinch_enter": defaults.pinch_enter, "pinch_release": defaults.pinch_release}
+        )
+    if settings.thumb_dir_enter_deg <= settings.thumb_dir_exit_deg:
+        warnings.append(
+            "thumb_dir_enter_deg must be above thumb_dir_exit_deg: both reset to their defaults"
+        )
+        defaults = Settings()
+        settings = settings.model_copy(
+            update={
+                "thumb_dir_enter_deg": defaults.thumb_dir_enter_deg,
+                "thumb_dir_exit_deg": defaults.thumb_dir_exit_deg,
+            }
         )
     return settings, warnings
 

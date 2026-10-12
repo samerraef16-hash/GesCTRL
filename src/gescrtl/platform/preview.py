@@ -42,6 +42,8 @@ POSE_LABELS = {
     Pose.G6_OPEN_PALM: "open palm (resume)",
     Pose.G7_THREE_FINGERS: "three fingers (no action)",
     Pose.G8_FLAT_HAND: "flat hand (hold cursor; 1.5 s = pause)",
+    Pose.G9_CALL_ME: "call me (hold 0.5 s: volume / brightness)",
+    Pose.G10_INDEX_POINT: "index point (presentation laser)",
 }
 
 

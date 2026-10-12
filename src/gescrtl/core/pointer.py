@@ -27,7 +27,9 @@ from gescrtl.core.types import (
 )
 
 _PINCH_POSES = (Pose.G2_PINCH_INDEX, Pose.G3_PINCH_MIDDLE)
-_MOVE_POSES = (Pose.G1_RELAXED, Pose.G6_OPEN_PALM)  # G6 is ordinary movement while Active
+# G6 is ordinary movement while Active; G10 (index point) is the presentation laser pose and
+# just points here
+_MOVE_POSES = (Pose.G1_RELAXED, Pose.G6_OPEN_PALM, Pose.G10_INDEX_POINT)
 
 
 class _Phase(Enum):
@@ -81,6 +83,11 @@ class Pointer:
         # cue
         self._cue: tuple[CueKind, int] | None = None
         self._cue_hold_until_ns = 0
+
+    @property
+    def busy(self) -> bool:
+        """True while a pinch, drag, or scroll is in progress."""
+        return self._phase is not _Phase.MOVE
 
     # -- helpers -----------------------------------------------------------------------------
 

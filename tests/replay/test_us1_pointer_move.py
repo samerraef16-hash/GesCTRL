@@ -63,3 +63,13 @@ def test_no_cursor_events_after_pause_command():
     run(eng, s2.frames())
     s3 = Script(t0_ns=s2.t_ns).hold(Pose.G1_RELAXED, 600, at=(0.6, 0.6))
     assert not moves(run(eng, s3.frames()))
+
+
+def test_index_point_moves_the_cursor_like_a_relaxed_hand():
+    """G10 (index finger alone) is the presentation pointer pose; in Pointer Mode it just points."""
+    eng, s = resumed_engine()
+    s2 = Script(t0_ns=s.t_ns).hold(Pose.G10_INDEX_POINT, 300, at=(0.4, 0.5))
+    s2.move(Pose.G10_INDEX_POINT, to=(0.6, 0.5), ms=800)
+    ev = moves(run(eng, s2.frames()))
+    assert ev and ev[-1].nx > 0.55  # the hand ended at 0.6, which maps to about 0.67
+    assert min(m.nx for m in ev) < 0.5  # and it did start on the left

@@ -99,3 +99,31 @@ def test_settings_mirror_core_config_so_they_cannot_drift():
     assert {n: v for n, v in Settings().model_dump().items()} == core
     assert Settings().to_core_config(double_click_ms=400).double_click_ms == 400
     assert Settings(active_region=0.7).to_core_config().active_region == 0.7
+
+
+def test_spec_003_defaults_round_trip(tmp_path):
+    path = tmp_path / "settings.json"
+    s, warnings = store.load(path)
+    assert warnings == []
+    assert (s.menu_hold_ms, s.panel_hold_ms, s.swipe_min_frames, s.level_step) == (800, 500, 3, 2)
+    cfg = s.to_core_config()
+    assert cfg.thumb_dir_enter_deg == 50.0 and cfg.thumb_dir_exit_deg == 35.0
+    again, warnings = store.load(path)
+    assert warnings == [] and again == s
+
+
+def test_out_of_range_spec_003_value_falls_back_with_warning(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"swipe_min_frames": 99, "level_step": 0}')
+    s, warnings = store.load(path)
+    assert (s.swipe_min_frames, s.level_step) == (3, 2)
+    assert any("swipe_min_frames" in w for w in warnings)
+    assert any("level_step" in w for w in warnings)
+
+
+def test_thumb_direction_enter_must_stay_above_exit(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"thumb_dir_enter_deg": 30, "thumb_dir_exit_deg": 40}')
+    s, warnings = store.load(path)
+    assert (s.thumb_dir_enter_deg, s.thumb_dir_exit_deg) == (50.0, 35.0)
+    assert any("thumb_dir_enter_deg" in w for w in warnings)

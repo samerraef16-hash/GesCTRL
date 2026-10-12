@@ -58,3 +58,41 @@ class CoreConfig:
     # Double click (platform overrides the time from the OS at startup)
     double_click_ms: int = 500
     double_click_dist: float = 0.02  # normalized screen distance within which taps are snapped
+
+    # Mode menu and level panel (spec 003 D5, D8)
+    menu_hold_ms: int = 800
+    menu_timeout_ms: int = 5000
+    panel_hold_ms: int = 500
+    panel_timeout_ms: int = 5000
+
+    # Presentation: swipe (D6). Distances are in hand sizes, speeds in hand sizes per second.
+    swipe_window_ms: int = 350
+    swipe_min_frames: int = 3
+    swipe_min_dist: float = 1.5
+    swipe_max_dy_ratio: float = 0.5
+    swipe_cooldown_ms: int = 600
+    swipe_return_block_ms: int = 1000
+    swipe_rearm_speed: float = 1.0
+    swipe_rearm_ms: int = 100
+
+    # Presentation: slide show start/end by thumb direction, with hysteresis (enter > exit)
+    show_hold_ms: int = 1000
+    show_cooldown_ms: int = 2000
+    thumb_dir_enter_deg: float = 50.0
+    thumb_dir_exit_deg: float = 35.0
+
+    # Presentation: laser pointer (stronger smoothing than Pointer Mode)
+    laser_min_cutoff: float = 0.3
+    laser_beta: float = 0.002
+    laser_grace_ms: int = 300
+
+    # Level control (volume / brightness), in percentage points
+    level_step: int = 2
+    level_max_rate: float = 40.0  # percentage points per second
+    level_drag_gain: float = 1.0  # percent per slider height of hand travel is 100 * gain
+    level_repeat_ms: int = 150  # Media Mode: repeat interval while the pinch stays held
+
+    # Pointing at on-screen targets (menu, panel, media grid)
+    action_cooldown_ms: int = 400
+    confirm_window_ms: int = 3000
+    target_margin: float = 0.01  # normalized screen distance inside a target needed to select it

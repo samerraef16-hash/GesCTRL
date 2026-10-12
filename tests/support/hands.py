@@ -36,7 +36,7 @@ _FINGERS = ("index", "middle", "ring", "pinky")
 
 
 def _finger_points(
-    name: str, extended: bool
+    name: str, extended: bool, curl: float | None = None
 ) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float], tuple[float, float]]:
     mx, my = _MCP[name]
     k = _LENGTH[name]
@@ -47,6 +47,10 @@ def _finger_points(
     if extended:
         dip = (pip[0] + l2 * ux, pip[1] + l2 * uy)
         tip = (dip[0] + l3 * ux, dip[1] + l3 * uy)
+    elif curl is not None:  # tip on the wrist-pip line so that |tip| / |pip| equals ``curl``
+        d = math.hypot(*pip)
+        tip = (pip[0] / d * curl * d, pip[1] / d * curl * d)
+        dip = ((pip[0] + tip[0]) / 2, (pip[1] + tip[1]) / 2)
     else:  # folded into the palm: tip ends below its knuckle
         tip = (mx, my + 0.2)
         dip = ((pip[0] + tip[0]) / 2, (pip[1] + tip[1]) / 2)
@@ -62,15 +66,21 @@ def pose(
     pinch_ratio: float | None = None,
     thumb_tilt_deg: float = 0.0,
     thumb_right: bool = False,
+    pinky_curl: float | None = None,
 ) -> Hand:
     """Build a hand in pose ``kind`` whose palm center is at ``at`` (normalized image coords).
 
     ``pinch_ratio`` overrides the thumb-to-fingertip distance (in hand sizes) for G2/G3.
     For G4 (fist, thumb out sideways) ``thumb_tilt_deg`` tilts the thumb (up positive) and
-    ``thumb_right`` makes it point right instead of left.
+    ``thumb_right`` makes it point right instead of left. G9 (call me) uses the same tiltable
+    thumb with the pinky extended. ``pinky_curl`` sets a folded pinky's tip/pip ratio (1.10 is
+    "loosely curled": neither curled nor extended).
+
+    G1 stands for "any other hand": index and middle finger up (a hand that is neither pointing
+    with the index alone, G10, nor any other pose).
     """
     ext = {
-        Pose.G1_RELAXED: (True, False, False, False),
+        Pose.G1_RELAXED: (True, True, False, False),
         Pose.G2_PINCH_INDEX: (True, False, False, False),
         Pose.G3_PINCH_MIDDLE: (False, True, False, False),
         Pose.G4_THUMBS_UP: (False, False, False, False),
@@ -78,8 +88,13 @@ def pose(
         Pose.G6_OPEN_PALM: (True, True, True, True),
         Pose.G7_THREE_FINGERS: (True, True, True, False),
         Pose.G8_FLAT_HAND: (True, True, True, True),
+        Pose.G9_CALL_ME: (False, False, False, True),
+        Pose.G10_INDEX_POINT: (True, False, False, False),
     }[kind]
-    chains = {n: _finger_points(n, e) for n, e in zip(_FINGERS, ext, strict=True)}
+    chains = {
+        n: _finger_points(n, e, pinky_curl if n == "pinky" else None)
+        for n, e in zip(_FINGERS, ext, strict=True)
+    }
 
     ix, iy = _MCP["index"]
     if kind in (Pose.G2_PINCH_INDEX, Pose.G3_PINCH_MIDDLE):
@@ -102,7 +117,7 @@ def pose(
         thumb_tip,
     ]
 
-    if kind is Pose.G4_THUMBS_UP:  # straight thumb of length 1 from its base, tilted
+    if kind in (Pose.G4_THUMBS_UP, Pose.G9_CALL_ME):  # straight thumb, length 1, tilted
         a = math.radians(thumb_tilt_deg)
         side = 1.0 if thumb_right else -1.0
         d = (side * math.cos(a), -math.sin(a))
@@ -159,6 +174,7 @@ class Script:
         pinch_ratio: float | None = None,
         others: Iterable[tuple[Pose, tuple[float, float]]] = (),
         tilt: float | None = None,
+        pinky_curl: float | None = None,
     ) -> Script:
         """Hold ``kind`` at ``at`` (default: where the last item ended) for ``ms``.
 
@@ -171,7 +187,12 @@ class Script:
         extra = [pose(k, p) for k, p in others]
         for _ in range(self._frames(ms)):
             hand = pose(
-                kind, self._pos, score=score, pinch_ratio=pinch_ratio, thumb_tilt_deg=self._tilt
+                kind,
+                self._pos,
+                score=score,
+                pinch_ratio=pinch_ratio,
+                thumb_tilt_deg=self._tilt,
+                pinky_curl=pinky_curl,
             )
             self._emit([hand, *extra])
         return self
@@ -194,6 +215,7 @@ class Script:
         score: float = 0.95,
         pinch_ratio: float | None = None,
         others: Iterable[tuple[Pose, tuple[float, float]]] = (),
+        pinky_curl: float | None = None,
     ) -> Script:
         """Move linearly from the current position to ``to`` while holding ``kind``."""
         extra = [pose(k, p) for k, p in others]
@@ -202,7 +224,12 @@ class Script:
         for i in range(1, n + 1):
             f = i / n
             pos = (x0 + (to[0] - x0) * f, y0 + (to[1] - y0) * f)
-            self._emit([pose(kind, pos, score=score, pinch_ratio=pinch_ratio), *extra])
+            self._emit(
+                [
+                    pose(kind, pos, score=score, pinch_ratio=pinch_ratio, pinky_curl=pinky_curl),
+                    *extra,
+                ]
+            )
         self._pos = to
         return self
 

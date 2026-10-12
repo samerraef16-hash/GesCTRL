@@ -344,14 +344,16 @@ def test_resume_refused_while_hotkey_unavailable():
     assert eng.state is State.ACTIVE
 
 
-# -- G7 does nothing -----------------------------------------------------------------------------
+# -- G7 shorter than the menu hold does nothing ---------------------------------------------------
+# Spec 002 ignored G7 entirely. Since spec 003 a hold of menu_hold_ms (0.8 s) opens the mode menu
+# (tests/replay/test_us1_mode_menu.py); anything shorter must still have no effect.
 
 
-def test_three_finger_gesture_has_no_effect():
+def test_three_finger_gesture_shorter_than_the_menu_hold_has_no_effect():
     eng, s = active_engine()
     s2 = Script(t0_ns=s.t_ns).hold(Pose.G1_RELAXED, 300, at=(0.5, 0.5))
     run(eng, s2.frames())
-    s3 = Script(t0_ns=s2.t_ns).hold(Pose.G7_THREE_FINGERS, 2000, at=(0.5, 0.5))
+    s3 = Script(t0_ns=s2.t_ns).hold(Pose.G7_THREE_FINGERS, 600, at=(0.5, 0.5))
     ev = run(eng, s3.frames())
     assert eng.state is State.ACTIVE and eng.sub is Sub.NORMAL
     # before G7 is stable (3 frames) the pose still reads as relaxed: the cursor may be re-sent

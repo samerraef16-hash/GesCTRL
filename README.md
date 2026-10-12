@@ -1,7 +1,9 @@
 # GesCRTL
 
-Control a Windows PC with hand gestures from an ordinary webcam. This release is **Pointer Mode**:
-move the cursor, click, double-click, right-click, drag and scroll with one hand, in the air.
+Control a Windows PC with hand gestures from an ordinary webcam. Four modes, one hand:
+**Pointer** (move, click, drag, scroll), **Presentation** (slides and a laser pointer),
+**Media/System** (play, volume, brightness, screenshot) and Keyboard (coming later). Volume and
+brightness are also one gesture away in every mode.
 
 It is a portfolio project that runs from source (Python 3.12, Windows 11). Hand tracking is
 MediaPipe Hand Landmarker; everything after tracking is plain, tested logic that never touches
@@ -33,6 +35,24 @@ The app starts **Paused**. Hold an open palm facing the camera for one second to
 | Closed fist | Freeze the cursor |
 | Flat hand: upright, palm forward, fingers together, thumb across the palm | Hold the cursor still |
 | Flat hand held still for 1.5 s | Pause |
+
+### Modes
+
+Hold **three fingers** for 0.8 s to open the mode menu, point at a mode and pinch to choose it
+(a fist cancels). The tray icon has the same choice under **Mode** if you prefer the mouse.
+
+| Mode | Do this | To get this |
+|---|---|---|
+| Presentation | Raise only the index finger | Red laser dot on the screen |
+| Presentation | Swipe an open hand right or left, quickly | Next or previous slide |
+| Presentation | Thumb up (or down), held 1 s | Start the show from this slide (or end it): PowerPoint and Google Slides |
+| Media/System | Point at a target and pinch | Play/pause, previous, next, mute, screenshot, switch app |
+| Media/System | Hold the pinch on a + or − target | Volume or brightness keeps changing |
+| Media/System | Screenshot, switch app | Pinch twice within 3 s to confirm |
+| Any mode | "Call me" (thumb and pinky out), held 0.5 s | Volume and brightness sliders: pinch one and move up or down |
+
+The screenshot action presses Win+PrtSc, so Windows saves a screen capture to
+`Pictures\Screenshots`; it is never a camera image. Brightness works on built-in displays only.
 
 Details and the reasoning are in [`docs/interaction/gesture-vocabulary.md`](docs/interaction/gesture-vocabulary.md).
 

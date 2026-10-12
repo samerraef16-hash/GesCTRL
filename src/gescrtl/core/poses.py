@@ -28,6 +28,8 @@ class PoseClassifier:
             return pinch
         if all(f.curled(i) for i in range(4)):
             return Pose.G4_THUMBS_UP if f.thumbs_up else Pose.G5_FIST
+        if f.call_me:
+            return Pose.G9_CALL_ME
         ext = [f.extended(i) for i in range(4)]
         if all(ext):
             if f.thumb_extended:
@@ -37,6 +39,8 @@ class PoseClassifier:
         three = ext[_INDEX] and ext[_MIDDLE] and ext[_RING] and f.curled(_PINKY)
         if three and not f.thumb_extended:
             return Pose.G7_THREE_FINGERS
+        if f.index_point:
+            return Pose.G10_INDEX_POINT
         return Pose.G1_RELAXED
 
     def _update_pinch(self, f: Features) -> Pose | None:

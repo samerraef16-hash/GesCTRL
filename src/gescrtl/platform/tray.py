@@ -8,7 +8,15 @@ from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
-from gescrtl.core.types import Command, Event, State, StateChanged, Warning
+from gescrtl.core.types import Command, Event, Mode, ModeChanged, State, StateChanged, Warning
+
+# the tray lists the modes in the same order as the gesture menu; Keyboard is not available yet
+_MODE_LABELS = {
+    Mode.POINTER: "Pointer",
+    Mode.PRESENTATION: "Presentation",
+    Mode.MEDIA: "Media/System",
+    Mode.KEYBOARD: "Keyboard (later)",
+}
 
 
 def _icon(on: bool) -> QIcon:
@@ -35,9 +43,11 @@ class Tray(QObject):
         on_reset: Callable[[], None],
         on_exit: Callable[[], None],
         on_preview: Callable[[bool], None] = lambda _on: None,
+        on_mode: Callable[[Mode], None] = lambda _mode: None,
     ) -> None:
         super().__init__()
         self._on_command = on_command
+        self._mode = Mode.POINTER  # what the engine last reported
         self._icon_on, self._icon_off = _icon(True), _icon(False)
         self._tray = QSystemTrayIcon(self._icon_on)
         menu = QMenu()
@@ -56,6 +66,16 @@ class Tray(QObject):
         exit_action.triggered.connect(lambda: on_exit())
         for action in (self._pause_action, self._power_action):
             menu.addAction(action)
+        self._mode_menu = menu.addMenu("Mode")
+        self.mode_actions: dict[Mode, QAction] = {}
+        for mode, label in _MODE_LABELS.items():
+            action = QAction(label, self._mode_menu)
+            action.setCheckable(True)
+            action.setEnabled(mode is not Mode.KEYBOARD)
+            action.triggered.connect(lambda _checked=False, m=mode: self._pick_mode(m, on_mode))
+            self._mode_menu.addAction(action)
+            self.mode_actions[mode] = action
+        self._sync_mode_checks()
         menu.addSeparator()
         menu.addAction(self._preview_action)
         menu.addAction(reload_action)
@@ -74,9 +94,23 @@ class Tray(QObject):
             self._pause_action.setEnabled(not off)
             self._pause_action.setText("Resume" if event.state is State.PAUSED else "Pause")
             self._power_action.setText("Turn on" if off else "Turn off")
+            self._mode_menu.setEnabled(not off)
             self._tray.setToolTip("GesCRTL: Off" if off else f"GesCRTL: {event.hud_text}")
+        elif isinstance(event, ModeChanged):
+            self._mode = event.mode
+            self._sync_mode_checks()
         elif isinstance(event, Warning):
             self.notify(event.text)
+
+    def _pick_mode(self, mode: Mode, on_mode: Callable[[Mode], None]) -> None:
+        # the check mark follows the engine's ModeChanged, not the click, so a refused pick
+        # (for example while the app is off) never leaves a wrong mark
+        self._sync_mode_checks()
+        on_mode(mode)
+
+    def _sync_mode_checks(self) -> None:
+        for mode, action in self.mode_actions.items():
+            action.setChecked(mode is self._mode)
 
     def set_preview_checked(self, on: bool) -> None:
         self._preview_action.blockSignals(True)

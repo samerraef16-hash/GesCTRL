@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-from gescrtl.core.types import Button, Event
+from gescrtl.core.types import Action, Button, Event, Level
 
 
 class InputBackend(Protocol):
@@ -21,6 +21,10 @@ class InputBackend(Protocol):
 
     def scroll(self, delta: int) -> None: ...
 
+    def system_action(self, action: Action) -> bool:
+        """Send the keys for ``action``. False if it is not supported in the foreground app."""
+        ...
+
     def release_all(self) -> None: ...
 
     def double_click_ms(self) -> int: ...
@@ -28,6 +32,20 @@ class InputBackend(Protocol):
     def primary_rect(self) -> tuple[int, int, int, int]:
         """(left, top, width, height) of the primary monitor in pixels."""
         ...
+
+
+class LevelBackend(Protocol):
+    """Changes the system volume and display brightness. Must not block the caller."""
+
+    def step(self, level: Level, delta: int) -> None:
+        """Change ``level`` by ``delta`` percentage points (positive = up)."""
+        ...
+
+    def read(self, level: Level) -> int | None:
+        """The current percentage, or None if that level cannot be controlled here."""
+        ...
+
+    def stop(self) -> None: ...
 
 
 class Overlay(Protocol):

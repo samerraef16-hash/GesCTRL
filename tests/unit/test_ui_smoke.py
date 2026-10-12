@@ -120,3 +120,176 @@ def test_preview_window_renders_frame_hand_and_readout(qapp):
     win.closed.connect(lambda: closed.append(True))
     win.close()
     assert closed
+
+
+def test_pointer_markers_show_move_and_hide(qapp):
+    from gescrtl.platform.overlays import LaserDot, SelectRing
+
+    for marker in (SelectRing(), LaserDot()):
+        marker.show_marker(0.5, 0.5)
+        assert marker.isVisible()
+        before = marker.pos()
+        marker.show_marker(0.2, 0.8)
+        assert marker.pos() != before
+        marker.hide_marker()
+        assert not marker.isVisible()
+        marker.close()
+
+
+def test_hud_routes_overlay_pointers_and_hides_them_when_not_active(qapp):
+    from gescrtl.core.types import OverlayPointer, OverlayPointerHidden, PointerStyle
+
+    hud = Hud(hint_ms=50)
+    hud.handle(StateChanged(State.ACTIVE, Sub.NORMAL, "Presentation"))
+    hud.handle(OverlayPointer(0.4, 0.4, PointerStyle.LASER))
+    assert hud.laser.isVisible() and not hud.ring.isVisible()
+    hud.handle(OverlayPointer(0.5, 0.5, PointerStyle.SELECT))
+    assert hud.ring.isVisible() and not hud.laser.isVisible()
+    hud.handle(OverlayPointerHidden())
+    assert not hud.ring.isVisible() and not hud.laser.isVisible()
+    hud.handle(OverlayPointer(0.4, 0.4, PointerStyle.LASER))
+    hud.handle(StateChanged(State.PAUSED, Sub.NONE, "Paused"))
+    assert not hud.laser.isVisible()
+    hud.close()
+
+
+def test_mode_menu_view_draws_all_four_items_and_the_current_mode(qapp):
+    from gescrtl.core.types import Mode
+    from gescrtl.platform.overlays import ModeMenuView
+
+    view = ModeMenuView()
+    view.show_menu(Mode.MEDIA, "presentation")
+    assert view.isVisible() and view.current is Mode.MEDIA and view.highlight == "presentation"
+    image = view.grab().toImage()  # runs paintEvent offscreen
+    assert not image.isNull()
+    view.show_menu(Mode.POINTER, "")
+    assert view.current is Mode.POINTER and view.highlight == ""
+    view.hide()
+    assert not view.isVisible()
+    view.close()
+
+
+def test_hud_shows_and_hides_the_mode_menu_and_tracks_the_mode(qapp):
+    from gescrtl.core.types import (
+        Mode,
+        ModeChanged,
+        OverlayHidden,
+        OverlayKind,
+        OverlayPointer,
+        OverlayShown,
+        PointerStyle,
+    )
+
+    hud = Hud(hint_ms=50)
+    hud.handle(StateChanged(State.ACTIVE, Sub.MODE_MENU, "Mode menu"))
+    hud.handle(OverlayShown(OverlayKind.MODE_MENU, highlight="media"))
+    assert hud.menu_view.isVisible() and hud.menu_view.current is Mode.POINTER
+    hud.handle(OverlayPointer(0.8, 0.5, PointerStyle.SELECT))
+    assert hud.ring.isVisible()
+    hud.handle(ModeChanged(Mode.MEDIA))
+    hud.handle(OverlayHidden())
+    assert not hud.menu_view.isVisible() and not hud.ring.isVisible()
+    hud.handle(OverlayShown(OverlayKind.MODE_MENU))
+    assert hud.menu_view.current is Mode.MEDIA
+    hud.handle(StateChanged(State.PAUSED, Sub.NONE, "Paused"))
+    assert not hud.menu_view.isVisible()
+    hud.close()
+
+
+def test_pill_is_blue_while_the_mode_menu_is_open():
+    from gescrtl.platform.hud import BLUE
+
+    color, _ = style_for(State.ACTIVE, Sub.MODE_MENU, "Mode menu")
+    assert color == BLUE
+
+
+def test_tray_mode_submenu_follows_the_engine_and_forwards_picks(qapp):
+    from gescrtl.core.types import Mode, ModeChanged
+
+    picked: list[Mode] = []
+    tray = Tray(lambda c: None, lambda: None, lambda: None, lambda: None, on_mode=picked.append)
+    actions = tray.mode_actions
+    assert list(actions) == [Mode.POINTER, Mode.PRESENTATION, Mode.MEDIA, Mode.KEYBOARD]
+    assert actions[Mode.POINTER].isChecked() and not actions[Mode.KEYBOARD].isEnabled()
+    actions[Mode.MEDIA].trigger()
+    assert picked == [Mode.MEDIA]
+    assert actions[Mode.POINTER].isChecked() and not actions[Mode.MEDIA].isChecked()  # not yet
+    tray.handle(ModeChanged(Mode.MEDIA))  # the engine confirmed
+    assert actions[Mode.MEDIA].isChecked() and not actions[Mode.POINTER].isChecked()
+    tray.handle(StateChanged(State.INACTIVE, Sub.NONE, ""))
+    assert not tray._mode_menu.isEnabled()
+    tray.handle(StateChanged(State.PAUSED, Sub.NONE, "Paused"))
+    assert tray._mode_menu.isEnabled()  # also works while Paused
+    tray.close()
+
+
+def test_level_panel_view_shows_both_values_and_the_unavailable_state(qapp):
+    from gescrtl.core.types import Level
+    from gescrtl.platform.overlays import LevelPanelView
+
+    view = LevelPanelView()
+    try:
+        view.set_value(Level.VOLUME, 64)
+        view.set_value(Level.BRIGHTNESS, None)
+        view.show_panel("volume")
+        assert view.isVisible() and view.values == {Level.VOLUME: 64, Level.BRIGHTNESS: None}
+        assert view.grab().toImage().width() > 0  # paints without raising
+        view.set_value(Level.BRIGHTNESS, 80)
+        view.show_panel("")
+        view.grab()
+    finally:
+        view.close()
+
+
+def test_hud_shows_the_panel_updates_levels_and_hides_it(qapp):
+    from gescrtl.core.types import Level, LevelReading, OverlayHidden, OverlayKind, OverlayShown
+    from gescrtl.platform.hud import Hud
+
+    hud = Hud()
+    try:
+        hud.handle(LevelReading(Level.VOLUME, 30))
+        hud.handle(OverlayShown(OverlayKind.LEVELS, highlight="brightness"))
+        assert hud.panel_view.isVisible() and hud.panel_view.highlight == "brightness"
+        assert hud.panel_view.values[Level.VOLUME] == 30
+        hud.handle(OverlayHidden())
+        assert not hud.panel_view.isVisible()
+    finally:
+        hud.close()
+
+
+def test_media_grid_view_draws_all_ten_targets_and_the_pending_confirmation(qapp):
+    from gescrtl.platform.overlays import MediaGridView
+
+    view = MediaGridView()
+    try:
+        view.show_grid("play_pause", "")
+        assert view.isVisible() and view.highlight == "play_pause"
+        assert view.grab().toImage().width() > 0
+        view.show_grid("screenshot", "screenshot")
+        view.grab()
+        assert view.pending == "screenshot"
+    finally:
+        view.close()
+
+
+def test_hud_shows_the_media_grid_and_hides_only_it_on_a_media_hide(qapp):
+    from gescrtl.core.types import (
+        OverlayHidden,
+        OverlayKind,
+        OverlayPointer,
+        OverlayShown,
+        PointerStyle,
+    )
+
+    hud = Hud()
+    try:
+        hud.handle(OverlayShown(OverlayKind.MEDIA, highlight="mute"))
+        hud.handle(OverlayPointer(0.5, 0.5, PointerStyle.SELECT))
+        assert hud.media_view.isVisible() and hud.media_view.highlight == "mute"
+        hud.handle(OverlayShown(OverlayKind.MODE_MENU))
+        hud.handle(OverlayHidden(OverlayKind.MEDIA))  # leaving Normal for the mode menu
+        assert not hud.media_view.isVisible() and hud.menu_view.isVisible()
+        hud.handle(OverlayHidden())
+        assert not hud.menu_view.isVisible()
+    finally:
+        hud.close()

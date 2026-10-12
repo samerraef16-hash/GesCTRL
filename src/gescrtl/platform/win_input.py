@@ -9,14 +9,51 @@ from __future__ import annotations
 
 import ctypes
 import threading
+from collections.abc import Callable
 from ctypes import wintypes
 
-from gescrtl.core.types import Button
+from gescrtl.core.types import Action, Button
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 ULONG_PTR = ctypes.c_size_t
 
 INPUT_MOUSE = 0
+INPUT_KEYBOARD = 1
+KEYEVENTF_EXTENDEDKEY = 0x0001
+KEYEVENTF_KEYUP = 0x0002
+
+VK_TAB = 0x09
+VK_MENU = 0x12  # Alt
+VK_LEFT = 0x25
+VK_RIGHT = 0x27
+VK_SNAPSHOT = 0x2C  # Print Screen
+VK_LWIN = 0x5B
+VK_MEDIA_NEXT_TRACK = 0xB0
+VK_MEDIA_PREV_TRACK = 0xB1
+VK_MEDIA_PLAY_PAUSE = 0xB3
+VK_VOLUME_MUTE = 0xAD
+_EXTENDED_KEYS = frozenset({0x25, 0x26, 0x27, 0x28})  # arrows are sent as extended keys
+
+# Keys of the actions that do not depend on the foreground application
+_FIXED_KEYS: dict[Action, list[int]] = {
+    Action.PLAY_PAUSE: [VK_MEDIA_PLAY_PAUSE],
+    Action.NEXT_TRACK: [VK_MEDIA_NEXT_TRACK],
+    Action.PREV_TRACK: [VK_MEDIA_PREV_TRACK],
+    Action.MUTE: [VK_VOLUME_MUTE],
+    Action.SCREENSHOT: [VK_LWIN, VK_SNAPSHOT],  # Win+PrtSc saves to Pictures\Screenshots
+    Action.APP_SWITCH: [VK_MENU, VK_TAB],
+}
+
+
+def default_keys_for(action: Action) -> list[int] | None:
+    """Slide keys for any application; starting and ending a show needs an app-specific key."""
+    if action is Action.SLIDE_NEXT:
+        return [VK_RIGHT]
+    if action is Action.SLIDE_PREV:
+        return [VK_LEFT]
+    return None
+
+
 MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
@@ -102,6 +139,21 @@ def _mouse(flags: int, dx: int = 0, dy: int = 0, data: int = 0) -> INPUT:
     return inp
 
 
+def build_key_inputs(vks: list[int]) -> list[INPUT]:
+    """Press every key in order, then release them in reverse (one chord, nothing left held)."""
+    inputs: list[INPUT] = []
+    for up in (False, True):
+        for vk in reversed(vks) if up else vks:
+            inp = INPUT()
+            inp.type = INPUT_KEYBOARD
+            flags = KEYEVENTF_KEYUP if up else 0
+            if vk in _EXTENDED_KEYS:
+                flags |= KEYEVENTF_EXTENDEDKEY
+            inp.ki = KEYBDINPUT(vk, 0, flags, 0, 0)
+            inputs.append(inp)
+    return inputs
+
+
 def _send(*inputs: INPUT) -> bool:
     arr = (INPUT * len(inputs))(*inputs)
     return user32.SendInput(len(inputs), arr, ctypes.sizeof(INPUT)) == len(inputs)
@@ -110,9 +162,11 @@ def _send(*inputs: INPUT) -> bool:
 class WinInput:
     """InputBackend for Windows. Thread-safe; tracks pressed buttons for ``release_all``."""
 
-    def __init__(self) -> None:
+    def __init__(self, keys_for: Callable[[Action], list[int] | None] = default_keys_for) -> None:
         self._lock = threading.RLock()
         self._down: set[Button] = set()
+        self._keys_down: list[int] = []  # keys of a chord whose send did not complete
+        self._keys_for = keys_for
 
     # -- geometry ------------------------------------------------------------------------
 
@@ -173,12 +227,26 @@ class WinInput:
         with self._lock:
             _send(_mouse(MOUSEEVENTF_WHEEL, data=delta))
 
+    def system_action(self, action: Action) -> bool:
+        """Send the keys of ``action``. False if it is not supported in the foreground app."""
+        keys = _FIXED_KEYS.get(action) or self._keys_for(action)
+        if not keys:
+            return False
+        with self._lock:
+            self._keys_down = list(keys)  # mark first: a failed send must still be released
+            if _send(*build_key_inputs(keys)):
+                self._keys_down = []
+        return True
+
     def release_all(self) -> None:
-        """Idempotent; releases every button this backend still holds down."""
+        """Idempotent; releases every button and key this backend still holds down."""
         with self._lock:
             for button in tuple(self._down):
                 self._down.discard(button)
                 _send(_mouse(_UP[button]))
+            if self._keys_down:
+                keys, self._keys_down = self._keys_down, []
+                _send(*(i for i in build_key_inputs(keys) if i.ki.dwFlags & KEYEVENTF_KEYUP))
 
 
 def _corner_smoke() -> None:

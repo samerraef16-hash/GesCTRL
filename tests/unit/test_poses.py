@@ -15,6 +15,8 @@ ALL = [
     Pose.G6_OPEN_PALM,
     Pose.G7_THREE_FINGERS,
     Pose.G8_FLAT_HAND,
+    Pose.G9_CALL_ME,
+    Pose.G10_INDEX_POINT,
 ]
 
 
@@ -149,3 +151,45 @@ def test_flat_hand_needs_more_frames_than_other_poses():
     for k in range(cfg.flat_hand_frames - 1):
         assert t.update(Pose.G8_FLAT_HAND, k) is Pose.NONE
     assert t.update(Pose.G8_FLAT_HAND, 99) is Pose.G8_FLAT_HAND
+
+
+def test_call_me_builder_has_the_intended_features():
+    f = feats(Pose.G9_CALL_ME)
+    assert all(f.curled(i) for i in range(3))
+    assert f.extended(3)  # pinky out
+    assert f.thumb_extended and f.pinch_index > 0.8
+
+
+def test_index_point_builder_has_the_intended_features():
+    f = feats(Pose.G10_INDEX_POINT)
+    assert f.extended(0)
+    assert all(f.curled(i) for i in (1, 2, 3))
+    assert not f.thumb_extended
+
+
+def test_call_me_works_with_the_thumb_on_either_side():
+    c = PoseClassifier(CoreConfig())
+    assert c.classify(feats(Pose.G9_CALL_ME, thumb_right=True)) is Pose.G9_CALL_ME
+
+
+def test_scroll_pose_with_slightly_loose_pinky_stays_scroll_not_call_me():
+    # pinky tip/pip 1.02 is still "curled" (< 1.05): the scroll pose must not become call-me
+    f = feats(Pose.G4_THUMBS_UP, pinky_curl=1.02, thumb_tilt_deg=30)
+    assert PoseClassifier(CoreConfig()).classify(f) is Pose.G4_THUMBS_UP
+
+
+def test_thumb_out_with_pinky_in_between_is_never_call_me():
+    # 1.10 is neither curled nor extended: ambiguous, so it must not open the level panel
+    f = feats(Pose.G4_THUMBS_UP, pinky_curl=1.10)
+    assert PoseClassifier(CoreConfig()).classify(f) is not Pose.G9_CALL_ME
+
+
+def test_index_point_needs_the_thumb_clear_of_the_index_tip():
+    # a thumb approaching a pinch must keep the hand "relaxed", not "index point"
+    c = PoseClassifier(CoreConfig())
+    f = feats(Pose.G2_PINCH_INDEX, pinch_ratio=0.45)
+    assert c.classify(f) is Pose.G1_RELAXED
+
+
+def test_two_fingers_up_is_relaxed_not_index_point():
+    assert PoseClassifier(CoreConfig()).classify(feats(Pose.G1_RELAXED)) is Pose.G1_RELAXED

@@ -1,8 +1,9 @@
 """Application state machine: the only place that decides what a command or gesture means.
 
-Implements the Pointer-Mode subset of ``docs/interaction/interaction-model.md`` (events E2-E11,
-E15-E17). The mode menu (E12-E14) is deliberately absent (spec FR-016). Every method returns
-the events to emit; ``ReleaseAll`` is part of any transition that leaves Active.
+Implements ``docs/interaction/interaction-model.md``: pause/resume, loss, clutch (E2-E11,
+E15-E17) and, since spec 003, the current mode and the mode menu (E12-E14, FR-001..FR-004) with
+the tray fallback ``SET_MODE``. Every method returns the events to emit; ``ReleaseAll`` is part
+of any transition that leaves Active, opens the menu, or changes the mode.
 """
 
 from __future__ import annotations
@@ -14,6 +15,9 @@ from gescrtl.core.types import (
     CueKind,
     Event,
     HintsShown,
+    Mode,
+    ModeChanged,
+    OverlayHidden,
     ReleaseAll,
     State,
     StateChanged,
@@ -21,13 +25,37 @@ from gescrtl.core.types import (
     Warning,
 )
 
-POINTER_HINTS = (
-    "Pinch: click · hold pinch: drag",
-    "Thumb out, tilt: scroll",
-    "Flat hand: hold cursor",
-    "Keep flat hand 1.5 s: pause",
-)
+# At most four hints, for the mode being entered only (FR-005). Keyboard has none until spec 004.
+MODE_HINTS: dict[Mode, tuple[str, ...]] = {
+    Mode.POINTER: (
+        "Pinch: click · hold: drag",
+        "Thumb out, tilt: scroll",
+        "Three fingers: modes · call me: volume/brightness",
+        "Flat hand 1.5 s: pause",
+    ),
+    Mode.PRESENTATION: (
+        "Index finger: pointer",
+        "Open-hand swipe: next / previous",
+        "Thumb up 1 s: start show · down: end",
+        "Flat hand 1.5 s: pause",
+    ),
+    Mode.MEDIA: (
+        "Point + pinch: run action",
+        "Hold pinch on ±: keep changing",
+        "Fist: cancel",
+        "Flat hand 1.5 s: pause",
+    ),
+}
+MODE_TEXT = {
+    Mode.POINTER: "Pointer",
+    Mode.PRESENTATION: "Presentation",
+    Mode.MEDIA: "Media",  # short form of Media/System
+    Mode.KEYBOARD: "Keyboard",
+}
 START_HINT = ("Show open palm to start",)
+MENU_TEXT = "Mode menu"
+PANEL_TEXT = "Levels"
+_OVERLAY_SUBS = (Sub.MODE_MENU, Sub.LEVEL_PANEL)
 
 
 class StateMachine:
@@ -35,6 +63,7 @@ class StateMachine:
         self.cfg = cfg
         self.state = State.PAUSED  # E1: always start Paused
         self.sub = Sub.NONE
+        self.mode = Mode.POINTER  # every launch starts in Pointer Mode (FR-004)
         self.hotkey_ok = True
         self.camera_ok = True
         self.camera_cause = ""
@@ -44,6 +73,9 @@ class StateMachine:
 
     # -- helpers ---------------------------------------------------------------------------
 
+    def mode_text(self) -> str:
+        return MODE_TEXT[self.mode]
+
     def _paused_text(self) -> str:
         return "Paused" if self.camera_ok else "Paused · Camera unavailable"
 
@@ -52,12 +84,15 @@ class StateMachine:
         if reason is not None:
             events.append(ReleaseAll(reason))
         was_active = self.state is State.ACTIVE
+        was_overlay = was_active and self.sub in _OVERLAY_SUBS
         self.state, self.sub = state, sub
         events.append(StateChanged(state, sub, text))
+        if was_overlay and not (state is State.ACTIVE and sub in _OVERLAY_SUBS):
+            events.append(OverlayHidden())
         if state is not State.ACTIVE and was_active:
             events.append(CueChanged(CueKind.HIDDEN))
-        if state is State.ACTIVE and sub is Sub.CLUTCHED:
-            events.append(CueChanged(CueKind.CLUTCH))
+        if state is State.ACTIVE and sub is Sub.CLUTCHED and self.mode is Mode.POINTER:
+            events.append(CueChanged(CueKind.CLUTCH))  # the cursor cue belongs to Pointer Mode
         if state is not State.PAUSED:
             self._stopped_until_ns = None
         return events
@@ -101,7 +136,8 @@ class StateMachine:
                 )
             ]
         self.last_toggle_ns = t_ns
-        return [*self._go(State.ACTIVE, Sub.NORMAL, "Pointer"), HintsShown(POINTER_HINTS)]
+        events = self._go(State.ACTIVE, Sub.NORMAL, self.mode_text())
+        return [*events, HintsShown(MODE_HINTS[self.mode])]
 
     def pause(self, t_ns: int, reason: str = "pause") -> list[Event]:
         """E3/E4: Active or Tracking Lost -> Paused; in Paused only ReleaseAll."""
@@ -114,14 +150,70 @@ class StateMachine:
     def clutch_start(self) -> list[Event]:
         """E16."""
         if self.state is State.ACTIVE and self.sub is Sub.NORMAL:
-            return self._go(State.ACTIVE, Sub.CLUTCHED, "Pointer · Hold", "clutch")
+            return self._go(State.ACTIVE, Sub.CLUTCHED, f"{self.mode_text()} · Hold", "clutch")
         return []
 
     def clutch_end(self) -> list[Event]:
         """E17."""
         if self.state is State.ACTIVE and self.sub is Sub.CLUTCHED:
-            return self._go(State.ACTIVE, Sub.NORMAL, "Pointer")
+            return self._go(State.ACTIVE, Sub.NORMAL, self.mode_text())
         return []
+
+    # -- mode menu (E12-E14) and mode changes ----------------------------------------------
+
+    def open_menu(self) -> list[Event]:
+        """E12: Active · Normal -> Active · ModeMenuOpen. Releases everything first."""
+        if self.state is State.ACTIVE and self.sub is Sub.NORMAL:
+            return self._go(State.ACTIVE, Sub.MODE_MENU, MENU_TEXT, "mode menu")
+        return []
+
+    def confirm_mode(self, mode: Mode) -> list[Event]:
+        """E13: a mode was chosen in the menu. Keyboard is listed but cannot be chosen."""
+        if not (self.state is State.ACTIVE and self.sub is Sub.MODE_MENU):
+            return []
+        if mode is Mode.KEYBOARD:
+            return []
+        changed = mode is not self.mode
+        self.mode = mode
+        reason = "mode change" if changed else None
+        events = self._go(State.ACTIVE, Sub.NORMAL, self.mode_text(), reason)
+        if changed:
+            events.append(ModeChanged(mode))
+        events.append(HintsShown(MODE_HINTS[mode]))
+        return events
+
+    def cancel_menu(self) -> list[Event]:
+        """E14: closed with a fist or the timeout; the mode is unchanged."""
+        if self.state is State.ACTIVE and self.sub is Sub.MODE_MENU:
+            return self._go(State.ACTIVE, Sub.NORMAL, self.mode_text())
+        return []
+
+    def open_panel(self) -> list[Event]:
+        """Active · Normal -> Active · LevelPanelOpen, from any mode. Releases everything first."""
+        if self.state is State.ACTIVE and self.sub is Sub.NORMAL:
+            return self._go(State.ACTIVE, Sub.LEVEL_PANEL, PANEL_TEXT, "level panel")
+        return []
+
+    def close_panel(self) -> list[Event]:
+        """Fist, timeout, or another gesture: back to Normal in the same mode."""
+        if self.state is State.ACTIVE and self.sub is Sub.LEVEL_PANEL:
+            return self._go(State.ACTIVE, Sub.NORMAL, self.mode_text())
+        return []
+
+    def set_mode(self, name: str) -> list[Event]:
+        """Tray fallback (FR-025). Active: like a menu choice. Paused / Tracking Lost: the mode
+        applies when Active again and the indicator text does not change."""
+        try:
+            mode = Mode[name]
+        except KeyError:
+            return []
+        if mode is Mode.KEYBOARD or mode is self.mode or self.state is State.INACTIVE:
+            return []
+        self.mode = mode
+        if self.state is State.ACTIVE:
+            events = self._go(State.ACTIVE, Sub.NORMAL, self.mode_text(), "mode change")
+            return [*events, ModeChanged(mode), HintsShown(MODE_HINTS[mode])]
+        return [ModeChanged(mode)]
 
     def hand_lost(self) -> list[Event]:
         """E8."""
@@ -132,7 +224,7 @@ class StateMachine:
     def hand_back(self) -> list[Event]:
         """E9: automatic return, same mode, no hints."""
         if self.state is State.TRACKING_LOST and self.sub is Sub.HAND_MISSING:
-            return self._go(State.ACTIVE, Sub.NORMAL, "Pointer")
+            return self._go(State.ACTIVE, Sub.NORMAL, self.mode_text())
         return []
 
     # -- commands --------------------------------------------------------------------------
@@ -175,17 +267,16 @@ class StateMachine:
         if cmd is Command.HOTKEY_AVAILABLE:
             self.hotkey_ok = True
             return []
+        if cmd is Command.SET_MODE:
+            return self.set_mode(arg)
         if cmd is Command.EXIT:
             was_inactive = self.state is State.INACTIVE
+            was_overlay = self.state is State.ACTIVE and self.sub in _OVERLAY_SUBS
             self.state, self.sub = State.INACTIVE, Sub.NONE
-            return (
-                [ReleaseAll("exit")]
-                if was_inactive
-                else [
-                    ReleaseAll("exit"),
-                    StateChanged(State.INACTIVE, Sub.NONE, ""),
-                ]
-            )
+            if was_inactive:
+                return [ReleaseAll("exit")]
+            events = [ReleaseAll("exit"), StateChanged(State.INACTIVE, Sub.NONE, "")]
+            return [*events, OverlayHidden()] if was_overlay else events
         return []
 
     def _emergency_stop(self, t_ns: int) -> list[Event]:

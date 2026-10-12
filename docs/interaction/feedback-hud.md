@@ -40,5 +40,26 @@ cancel". The menu closes automatically after 5 s with no selection.
 
 ## Hints per mode
 
-- **Pointer**: "Pinch: click · hold pinch: drag", "Thumb out, tilt: scroll", "Flat hand: hold cursor", "Keep flat hand 1.5 s: pause".
-- **Keyboard, Presentation, Media/System**: "Coming in a later phase".
+- **Pointer**: "Pinch: click · hold: drag", "Thumb out, tilt: scroll", "Three fingers: modes · call me: volume/brightness", "Flat hand 1.5 s: pause".
+- **Presentation**: "Index finger: pointer", "Open-hand swipe: next / previous", "Thumb up 1 s: start show · down: end", "Flat hand 1.5 s: pause".
+- **Media/System**: "Point + pinch: run action", "Hold pinch on ±: keep changing", "Fist: cancel", "Flat hand 1.5 s: pause".
+- **Keyboard**: not available yet.
+
+## Level panel layout
+
+Two tall sliders side by side (Volume, Brightness), centred, each 10 % of the screen wide and
+45 % high, filled to the level the system reports with the percentage inside. The slider pointed
+at is outlined. "Unavailable" replaces a level that cannot be controlled. Footer: "Pinch and move ·
+Fist to close".
+
+## Media grid layout
+
+Ten targets in two rows of five, each 15 % × 14 % of the screen: play/pause, previous, next,
+volume −, volume +, mute, brightness −, brightness +, screenshot, switch app. Each has a label
+and a simple glyph. The target pointed at is outlined; a target waiting for its second pinch is
+filled and says "Pinch again to confirm". Footer: "Point and pinch · Fist to cancel".
+
+## Presentation laser
+
+A red dot with a soft glow at the pointed position, shown only while the index finger is raised
+alone. It is an overlay on the screen; the real cursor does not move.
