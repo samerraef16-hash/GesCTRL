@@ -236,7 +236,9 @@ class PreviewWindow(QWidget):
         line2 = (
             f"pinch: index {d.pinch_index:.2f}   middle {d.pinch_middle:.2f}   (clicks below 0.25)"
         )
-        if d.stable is Pose.G4_THUMBS_UP:
+        if d.second:
+            line3 = d.second
+        elif d.stable is Pose.G4_THUMBS_UP:
             way = "up" if d.scroll_rate > 0 else "down" if d.scroll_rate < 0 else "none"
             line3 = (
                 f"scroll: thumb tilt {d.thumb_tilt_deg:+.0f} deg, "

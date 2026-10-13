@@ -95,3 +95,15 @@ def test_mode_overlay_action_and_level_events_count_as_false_triggers(
     assert row.total == 5 and row.must_be_quiet
     assert run_replay(str(tmp_path / "*.jsonl")) == 1
     assert "FAIL" in capsys.readouterr().out
+
+
+def test_typed_keys_and_custom_gestures_count_as_consequential_events():
+    row = ReplayRow("f.jsonl", "idle", 60.0, 0, 0, 0, 0, keys=2, customs=1)
+    assert row.total == 3 and row.must_be_quiet
+    table = replay_table([row])
+    assert "| keys | custom |" in table and "FAIL" in table
+
+
+def test_the_custom_matcher_fits_the_frame_budget(capsys):
+    assert bench.run_matcher() == 0
+    assert "p95 ms" in capsys.readouterr().out

@@ -62,10 +62,9 @@ def test_resume_shows_only_the_hints_of_the_current_mode():
     assert not (other - {pause_line}) & set(hints(ev)[0])
 
 
-def test_every_available_mode_has_one_to_four_hints_and_keyboard_has_none():
-    for mode in (Mode.POINTER, Mode.PRESENTATION, Mode.MEDIA):
+def test_every_mode_has_one_to_four_hints():
+    for mode in (Mode.POINTER, Mode.PRESENTATION, Mode.MEDIA, Mode.KEYBOARD):
         assert 1 <= len(MODE_HINTS[mode]) <= 4
-    assert Mode.KEYBOARD not in MODE_HINTS
 
 
 def test_the_mode_survives_hand_loss_and_comes_back_without_hints():

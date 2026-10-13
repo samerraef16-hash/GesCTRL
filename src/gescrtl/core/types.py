@@ -56,19 +56,22 @@ class Sub(Enum):
     CAMERA_UNAVAILABLE = auto()
     MODE_MENU = auto()  # Active, the mode menu is open (E12)
     LEVEL_PANEL = auto()  # Active, the volume/brightness panel is open
+    SETUP = auto()  # Active, calibration or gesture enrollment: no input is sent (spec 004)
 
 
 class Mode(Enum):
     POINTER = auto()
     PRESENTATION = auto()
     MEDIA = auto()  # Media/System; "Media" is the short form used in the indicator and menu
-    KEYBOARD = auto()  # listed in the menu, not available until spec 004
+    KEYBOARD = auto()  # on-screen keyboard (spec 004)
 
 
 class OverlayKind(Enum):
     MODE_MENU = auto()
     LEVELS = auto()
     MEDIA = auto()
+    KEYBOARD = auto()
+    SETUP = auto()
 
 
 class PointerStyle(Enum):
@@ -89,6 +92,20 @@ class Action(Enum):
     MUTE = auto()
     SCREENSHOT = auto()
     APP_SWITCH = auto()
+    # keyboard shortcuts (spec 004 D6)
+    COPY = auto()
+    PASTE = auto()
+    CUT = auto()
+    UNDO = auto()
+    REDO = auto()
+    SELECT_ALL = auto()
+    WIN = auto()
+    ESC = auto()
+    # mode changes requested by an action: the same path as the tray (spec 004 D6)
+    MODE_POINTER = auto()
+    MODE_PRESENTATION = auto()
+    MODE_MEDIA = auto()
+    MODE_KEYBOARD = auto()
 
 
 class Level(Enum):
@@ -118,6 +135,7 @@ class CueKind(Enum):
     DRAG = auto()
     SCROLL = auto()
     CLUTCH = auto()
+    DWELL = auto()  # progress of a dwell click (spec 004 D4)
 
 
 class Command(Enum):
@@ -134,6 +152,9 @@ class Command(Enum):
     HOTKEY_AVAILABLE = auto()
     EXIT = auto()
     SET_MODE = auto()  # arg: Mode name (tray fallback for the mode menu)
+    START_SETUP = auto()  # arg: "calibration" or "enroll:<shape|move>:<name>"
+    END_SETUP = auto()  # cancel a running setup session
+    DISPLAYS = auto()  # arg: JSON list of monitors in pixels (spec 004 D8)
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +239,8 @@ class OverlayShown(Event):
     kind: OverlayKind
     highlight: str = ""  # id of the pointed target, "" for none
     pending: str = ""  # id of a target waiting for its second confirmation
+    labels: tuple[tuple[str, str], ...] = ()  # (target id, label) when actions were remapped
+    dwell: float = 0.0  # progress of a dwell on the pointed target, 0..1
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,3 +277,52 @@ class LevelReading(Event):
 
     level: Level
     value: int | None  # percent, or None when that level cannot be controlled
+
+
+# --- spec 004 events ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class KeyStroke(Event):
+    """One key press for the foreground application: a printable character or a named key."""
+
+    key: str
+    mods: frozenset[str] = frozenset()  # "ctrl", "alt", "win", "shift"
+
+
+@dataclass(frozen=True, slots=True)
+class KeyboardView(Event):
+    """What the on-screen keyboard shows (the platform draws it)."""
+
+    highlight: str = ""
+    highlight2: str = ""  # the key the second hand points at
+    pressed: str = ""
+    oneshot: frozenset[str] = frozenset()
+    locked: frozenset[str] = frozenset()
+    recent: str = ""
+    position: str = "bottom"
+    dwell: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class SetupView(Event):
+    """Progress of calibration or enrollment."""
+
+    step: str
+    text: str
+    progress: float = 0.0
+    target: tuple[float, float] | None = None  # a screen point to reach, normalized
+
+
+@dataclass(frozen=True, slots=True)
+class SetupResult(Event):
+    """A setup session ended. ``values`` is None when it was cancelled or failed."""
+
+    kind: str  # "calibration" or "enroll"
+    values: dict[str, object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CustomFired(Event):
+    name: str
+    action: str  # an allowed action name (core.mapping)

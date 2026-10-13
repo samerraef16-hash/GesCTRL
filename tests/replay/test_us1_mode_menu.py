@@ -119,11 +119,11 @@ def test_the_pinch_that_chose_a_mode_does_not_click_afterwards():
     assert not [e for e in ev[changed:] if isinstance(e, INPUT_EVENTS)]
 
 
-def test_keyboard_is_listed_but_cannot_be_chosen():
+def test_keyboard_can_be_chosen_from_the_menu():
     eng = Engine()
     ev = run(eng, choose("keyboard").frames())
-    assert eng.sub is Sub.MODE_MENU and eng.sm.mode is Mode.POINTER
-    assert not [e for e in ev if isinstance(e, ModeChanged)]
+    assert eng.sub is Sub.NORMAL and eng.sm.mode is Mode.KEYBOARD
+    assert [e.mode for e in ev if isinstance(e, ModeChanged)] == [Mode.KEYBOARD]
 
 
 def test_pinch_in_the_gap_between_items_does_nothing():

@@ -21,6 +21,11 @@ class PrimaryHand:
         self._bystander: tuple[float, float] | None = None
         self._others: list[tuple[float, float]] = []  # non-primary wrists seen on the last frame
 
+    @property
+    def bystander(self) -> tuple[float, float] | None:
+        """Wrist of a hand that stayed in view when the primary vanished (never promoted)."""
+        return self._bystander
+
     def forget(self) -> None:
         """Drop the lock entirely (the next hand seen is acquired by confidence)."""
         self._last = None

@@ -67,6 +67,7 @@ def pose(
     thumb_tilt_deg: float = 0.0,
     thumb_right: bool = False,
     pinky_curl: float | None = None,
+    handedness: str = "Right",
 ) -> Hand:
     """Build a hand in pose ``kind`` whose palm center is at ``at`` (normalized image coords).
 
@@ -141,7 +142,7 @@ def pose(
     ay = sum(local[i][1] for i in anchor_idx) / 5 * scale
     wx, wy = at[0] - ax, at[1] - ay
     lms = tuple(Landmark(wx + x * scale / aspect, wy + y * scale, 0.0) for x, y in local)
-    return Hand(landmarks=lms, handedness="Right", score=score)
+    return Hand(landmarks=lms, handedness=handedness, score=score)
 
 
 class Script:
@@ -175,6 +176,9 @@ class Script:
         others: Iterable[tuple[Pose, tuple[float, float]]] = (),
         tilt: float | None = None,
         pinky_curl: float | None = None,
+        second: tuple[Pose, tuple[float, float]] | None = None,
+        second_hand: str = "Left",
+        pinch_ratio_second: float | None = None,
     ) -> Script:
         """Hold ``kind`` at ``at`` (default: where the last item ended) for ``ms``.
 
@@ -185,6 +189,10 @@ class Script:
         if tilt is not None:
             self._tilt = tilt
         extra = [pose(k, p) for k, p in others]
+        if second is not None:
+            extra.append(
+                pose(second[0], second[1], handedness=second_hand, pinch_ratio=pinch_ratio_second)
+            )
         for _ in range(self._frames(ms)):
             hand = pose(
                 kind,
@@ -216,9 +224,13 @@ class Script:
         pinch_ratio: float | None = None,
         others: Iterable[tuple[Pose, tuple[float, float]]] = (),
         pinky_curl: float | None = None,
+        second: tuple[Pose, tuple[float, float]] | None = None,
+        second_hand: str = "Left",
     ) -> Script:
         """Move linearly from the current position to ``to`` while holding ``kind``."""
         extra = [pose(k, p) for k, p in others]
+        if second is not None:
+            extra.append(pose(second[0], second[1], handedness=second_hand))
         n = self._frames(ms)
         x0, y0 = self._pos
         for i in range(1, n + 1):
@@ -232,6 +244,42 @@ class Script:
             )
         self._pos = to
         return self
+
+    def path(
+        self,
+        kind: Pose,
+        points: Sequence[tuple[float, float]],
+        ms: float,
+        score: float = 0.95,
+    ) -> Script:
+        """Move the hand along a polyline (for custom movement gestures), at constant speed."""
+        n = self._frames(ms)
+        segs = list(zip(points[:-1], points[1:], strict=True))
+        lengths = [math.dist(a, b) for a, b in segs]
+        total = sum(lengths) or 1.0
+        for i in range(1, n + 1):
+            d = total * i / n
+            for (a, b), seg_len in zip(segs, lengths, strict=True):
+                if d <= seg_len or (a, b) == segs[-1]:
+                    f = 0.0 if seg_len == 0 else min(d / seg_len, 1.0)
+                    pos = (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f)
+                    break
+                d -= seg_len
+            self._emit([pose(kind, pos, score=score)])
+        self._pos = points[-1]
+        return self
+
+    def displays(self, spec: Sequence[tuple[int, int, int, int]], primary: int = 0) -> Script:
+        """A ``DISPLAYS`` command: monitors as (x, y, w, h) pixel rectangles."""
+        import json
+
+        arg = json.dumps(
+            [
+                {"x": x, "y": y, "w": w, "h": h, "primary": i == primary, "name": f"D{i}"}
+                for i, (x, y, w, h) in enumerate(spec)
+            ]
+        )
+        return self.cmd(Command.DISPLAYS, arg)
 
     def none(self, frames: int = 1, ms: float | None = None) -> Script:
         """Frames with no hand in view."""

@@ -7,14 +7,17 @@ imagery. All methods must run on the Qt main thread; ``UiBridge`` in app.py mars
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
+from gescrtl.core import mapping
 from gescrtl.core.types import (
     CueChanged,
     CueKind,
+    CustomFired,
     Event,
     HintsShown,
+    KeyboardView,
     LevelReading,
     Mode,
     ModeChanged,
@@ -25,17 +28,21 @@ from gescrtl.core.types import (
     OverlayPointerHidden,
     OverlayShown,
     PointerStyle,
+    SetupView,
     State,
     StateChanged,
     Sub,
 )
+from gescrtl.platform import displays
 from gescrtl.platform.overlays import (
     OVERLAY_FLAGS,
+    KeyboardOverlay,
     LaserDot,
     LevelPanelView,
     MediaGridView,
     ModeMenuView,
     SelectRing,
+    SetupOverlay,
 )
 from gescrtl.platform.win_window import make_click_through
 
@@ -56,7 +63,7 @@ def style_for(state: State, sub: Sub, text: str) -> tuple[QColor, str]:
     if state is State.PAUSED:
         return GREY, "⚠ " if "Camera unavailable" in text else ""
     if state is State.ACTIVE:
-        if sub in (Sub.MODE_MENU, Sub.LEVEL_PANEL):
+        if sub in (Sub.MODE_MENU, Sub.LEVEL_PANEL, Sub.SETUP):
             return BLUE, ""
         return (GREEN_DIM if sub is Sub.CLUTCHED else GREEN), ""
     if state is State.TRACKING_LOST:
@@ -125,7 +132,7 @@ class Pill(QWidget):
             width = max(width, hm.horizontalAdvance(h) + 32)
         height = 34 + (len(self._hints) * (hm.height() + 2) + 8 if self._hints else 0)
         self.resize(width, height)
-        screen = QGuiApplication.primaryScreen()
+        screen = displays.overlay_screen()
         if screen is not None:
             geo = screen.geometry()
             self.move(geo.right() - width - 16, geo.top() + 16)
@@ -181,12 +188,20 @@ class CursorCue(QWidget):
         make_click_through(int(self.winId()))
 
     def move_to(self, nx: float, ny: float) -> None:
-        screen = QGuiApplication.primaryScreen()
-        if screen is None:
-            return
-        geo = screen.geometry()
-        cx = geo.left() + round(nx * (geo.width() - 1))
-        cy = geo.top() + round(ny * (geo.height() - 1))
+        """Centre the cue on the cursor: ``nx, ny`` are over the desktop box once the monitor
+        layout is known (spec 004 D8), otherwise over the primary monitor as before."""
+        mapped = displays.desktop_to_qt(nx, ny)
+        if mapped is not None:
+            cx, cy = mapped
+        else:
+            from PySide6.QtGui import QGuiApplication
+
+            screen = QGuiApplication.primaryScreen()
+            if screen is None:
+                return
+            geo = screen.geometry()
+            cx = geo.left() + round(nx * (geo.width() - 1))
+            cy = geo.top() + round(ny * (geo.height() - 1))
         self._center = (cx, cy)
         self.move(cx - CUE_SIZE // 2, cy - CUE_SIZE // 2)
 
@@ -222,6 +237,11 @@ class CursorCue(QWidget):
             p.drawEllipse(box)
             p.setPen(pen(GREEN, 4))
             p.drawArc(box, 90 * 16, -round(360 * 16 * max(prog, 0.05)))
+        elif k is CueKind.DWELL:
+            p.setPen(pen(QColor(255, 255, 255, 90), 2))
+            p.drawEllipse(box)
+            p.setPen(pen(AMBER, 4))
+            p.drawArc(box, 90 * 16, -round(360 * 16 * max(prog, 0.05)))
         elif k is CueKind.CLICK:
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(255, 255, 255, 220))
@@ -256,6 +276,8 @@ class Hud:
         self.menu_view = ModeMenuView()
         self.panel_view = LevelPanelView()
         self.media_view = MediaGridView()
+        self.keyboard_view = KeyboardOverlay()
+        self.setup_view = SetupOverlay()
         self.mode = Mode.POINTER  # the current mode, for highlighting it in the menu
 
     def handle(self, event: Event) -> None:
@@ -282,13 +304,21 @@ class Hud:
             elif event.kind is OverlayKind.LEVELS:
                 self.panel_view.show_panel(event.highlight)
             elif event.kind is OverlayKind.MEDIA:
-                self.media_view.show_grid(event.highlight, event.pending)
+                self.media_view.show_grid(event.highlight, event.pending, event.labels)
         elif isinstance(event, LevelReading):
             self.panel_view.set_value(event.level, event.value)
+        elif isinstance(event, KeyboardView):
+            self.keyboard_view.show_view(event)
+        elif isinstance(event, SetupView):
+            self.setup_view.show_view(event)
+        elif isinstance(event, CustomFired):
+            self.pill.show_hints((f"{event.name} → {mapping.label(event.action)}",))
         elif isinstance(event, OverlayHidden):
             if event.kind is OverlayKind.MEDIA:
                 self.media_view.hide()
                 self.ring.hide_marker()
+            elif event.kind is OverlayKind.KEYBOARD:
+                self.keyboard_view.hide()
             else:
                 self._hide_overlays()
         elif isinstance(event, StateChanged):
@@ -310,6 +340,8 @@ class Hud:
         self.menu_view.hide()
         self.panel_view.hide()
         self.media_view.hide()
+        self.keyboard_view.hide()
+        self.setup_view.hide()
 
     def set_recording(self, on: bool) -> None:
         self.pill.set_badge("● REC" if on else "")
@@ -322,3 +354,5 @@ class Hud:
         self.menu_view.close()
         self.panel_view.close()
         self.media_view.close()
+        self.keyboard_view.close()
+        self.setup_view.close()

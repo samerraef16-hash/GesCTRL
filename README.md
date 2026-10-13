@@ -2,8 +2,10 @@
 
 Control a Windows PC with hand gestures from an ordinary webcam. Four modes, one hand:
 **Pointer** (move, click, drag, scroll), **Presentation** (slides and a laser pointer),
-**Media/System** (play, volume, brightness, screenshot) and Keyboard (coming later). Volume and
-brightness are also one gesture away in every mode.
+**Media/System** (play, volume, brightness, screenshot) and **Keyboard** (an on-screen keyboard you
+point at and pinch). Volume and brightness are also one gesture away in every mode. A settings
+window, a guided calibration, several monitors, dwell instead of pinch, and your own recorded
+gestures make it fit the person and the desk.
 
 It is a portfolio project that runs from source (Python 3.12, Windows 11). Hand tracking is
 MediaPipe Hand Landmarker; everything after tracking is plain, tested logic that never touches
@@ -33,7 +35,7 @@ The app starts **Paused**. Hold an open palm facing the camera for one second to
 | Pinch thumb and middle finger, then let go | Right click |
 | Fist sideways with the thumb out, then tilt the thumb up or down | Scroll up or down, faster the more you tilt (like holding a scroll wheel) |
 | Closed fist | Freeze the cursor |
-| Flat hand: upright, palm forward, fingers together, thumb across the palm | Hold the cursor still |
+| Flat hand: upright, palm forward, fingers together, thumb across the palm | Hold the cursor still; make a fist to end the hold |
 | Flat hand held still for 1.5 s | Pause |
 
 ### Modes
@@ -50,7 +52,27 @@ Hold **three fingers** for 0.8 s to open the mode menu, point at a mode and pinc
 | Media/System | Hold the pinch on a + or − target | Volume or brightness keeps changing |
 | Media/System | Screenshot, switch app | Pinch twice within 3 s to confirm |
 | Any mode | "Call me" (thumb and pinky out), held 0.5 s | Volume and brightness sliders: pinch one and move up or down |
+| Keyboard | Point at a key and pinch | Type it (Backspace and the arrows repeat while held) |
+| Keyboard | Pinch with your other hand | Types the key the first hand points at |
+| Keyboard | Shift, Ctrl, Alt, Win | Tap once for the next key, twice to lock, a third time to clear |
+| Keyboard | Shortcut row | Copy, Paste, Cut, Undo, Redo, Select all, Alt+Tab, Win, Esc |
 
+Keyboard Mode is for short text. Typing speed is measured in the validation report; it does not
+claim to match a physical keyboard.
+
+### Make it yours
+
+Open **Settings** from the tray icon: movement range, smoothing, hold times, dwell, the keyboard
+position, which monitor shows the overlays, Start with Windows (off by default; GesCRTL still
+starts Paused), what each presentation and Media gesture does, and a reset to the defaults. Under
+**Calibrate** a short guided run measures your comfortable reach and pinch.
+
+For people who cannot pinch comfortably, **Confirmation: dwell** chooses a target by holding still
+on it, and **Dwell click** (off by default) clicks a cursor held still.
+
+**Custom gestures** (off until turned on): record a hand shape or a movement, give it an allowed
+action (media keys, shortcuts, slide changes). They never override clicks, pause, the mode menu or
+the emergency stop, and only numbers are stored, never images.
 The screenshot action presses Win+PrtSc, so Windows saves a screen capture to
 `Pictures\Screenshots`; it is never a camera image. Brightness works on built-in displays only.
 
@@ -63,9 +85,12 @@ Details and the reasoning are in [`docs/interaction/gesture-vocabulary.md`](docs
 - Nothing clicks or presses a key until a gesture has been seen clearly for several frames, and
   every pinch and pose has hysteresis and cooldowns so a wobble is not a click.
 - Pause, losing your hand, a camera problem, an error, or exiting always releases held buttons.
-- Only one hand controls at a time. A second hand or person in view is ignored.
-- The tray icon shows the state and offers Pause/Resume, Turn off, Reload settings, Reset to
-  defaults and the camera preview.
+- Only one hand controls at a time. A second hand or person in view is ignored, except that in
+  Keyboard Mode your own other hand may type too, each hand pointing at and pinching its own
+  keys (it can be turned off; see ADR 0007).
+- Calibration and recording a gesture send no input at all while they run.
+- The tray icon shows the state and offers Pause/Resume, Turn off, Mode, Settings, Calibrate,
+  turning custom gestures off, Reload settings, Reset to defaults and the camera preview.
 
 ## Privacy
 
@@ -75,8 +100,9 @@ contain hand landmark numbers and timestamps, never images.
 
 ## Settings
 
-`%APPDATA%\GesCRTL\settings.json` is created on first run with every value and its default. Edit
-it and choose **Reload settings** in the tray. A bad value falls back to its default with a
+`%APPDATA%\GesCRTL\settings.json` is created on first run with every value and its default. Use
+the **Settings** window, or edit the file and choose **Reload settings** in the tray. Custom
+gestures are stored next to it in `custom_gestures.json`. A bad value falls back to its default with a
 notice. A few flags override the file for quick tuning:
 `--region`, `--min-cutoff`, `--beta`, `--scroll-rate`, `--scroll-deadzone`.
 
@@ -90,6 +116,7 @@ python -m gescrtl.replay recordings\FILE.jsonl --resume      # replay a recordin
 python -m gescrtl.tools.targets                   # click-accuracy page (24/48/96 px targets)
 python -m gescrtl.tools.bench --replay "recordings\*.jsonl"  # false triggers per recording
 python -m gescrtl.tools.bench --live 20           # tracking rate, delay and CPU (no OS input)
+python -m gescrtl.tools.bench --matcher           # custom gesture matcher time per frame
 ```
 
 To turn a misfire into a regression test, see [`tests/fixtures/README.md`](tests/fixtures/README.md).
@@ -97,8 +124,7 @@ To turn a misfire into a regression test, see [`tests/fixtures/README.md`](tests
 ## Known limitations
 
 See [`docs/product/known-limitations.md`](docs/product/known-limitations.md). In short: it cannot
-control elevated windows or the lock screen, it needs decent light, and it covers the primary
-monitor only.
+control elevated windows or the lock screen, and it needs decent light.
 
 ## Project layout
 

@@ -13,6 +13,7 @@
 | Hold time: resume | 1000 ms *(provisional)* | G6 | Deliberate start |
 | Hold time: mode menu | 800 ms *(provisional)* | G7 | Deliberate menu opening |
 | Hold time: pause | 1500 ms *(provisional)* | G8 | Separates a clutch from a deliberate pause |
+| Hold time: end the hold | 600 ms *(provisional)* | G5 | A stray fist does not end the flat-hand hold |
 | Hold time: drag | 300 ms *(provisional)* | G2 | Separates a click from a drag |
 | Cooldown: right click | 300 ms *(provisional)* | G3 | Prevents repeated right clicks |
 | Cooldown: mode switch | 1000 ms *(provisional)* | G7 / mode menu | Prevents rapid mode flipping |
@@ -51,9 +52,26 @@ See the ReleaseAll section of `docs/interaction/interaction-model.md`.
 
 ## Primary hand only
 
-Other hands and people in the frame produce nothing.
+Other hands and people in the frame produce nothing. The one exception is the user's second
+hand in Keyboard Mode (ADR 0007): it can only type (point at keys and pinch), only if it
+passes the same-person check, and the setting can turn it off. Test: a recording of another
+person pinching nearby must press 0 keys.
+
+## Typing and dwell
+
+A key needs a stable pinch or a dwell, and a per-key cooldown. Holding a pinch repeats only
+Backspace and the arrows, after a delay. Dwell never repeats while the point stays still, and
+dwell clicking in Pointer Mode is off by default. Modifiers are never held down in Windows.
+
+## Custom gestures
+
+Off by default; each kind (shape, movement) ships only if it met its measured reliability
+(ADR 0008). They need the same confidence, stable frames, hold or completion, and cooldown as
+built-in gestures, are ignored while a built-in gesture is in progress, and cannot send clicks,
+drags or scrolls. A recorded gesture that looks like a built-in pose, the open-hand swipe, or
+another custom gesture is refused. Only numbers are stored, never images.
 
 ## What may never be overridden
 
-Emergency stop, pause, and ReleaseAll cannot be remapped or disabled by settings or by custom
-gestures (spec User Story 2; Plan.md Phase 8).
+Emergency stop, pause, resume, the mode menu, the level panel, clicks and ReleaseAll cannot be
+remapped, assigned to a custom gesture, or disabled by settings or by custom gestures (spec User Story 2; Plan.md Phase 8).

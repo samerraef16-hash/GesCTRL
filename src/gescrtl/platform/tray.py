@@ -10,12 +10,12 @@ from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from gescrtl.core.types import Command, Event, Mode, ModeChanged, State, StateChanged, Warning
 
-# the tray lists the modes in the same order as the gesture menu; Keyboard is not available yet
+# the tray lists the modes in the same order as the gesture menu
 _MODE_LABELS = {
     Mode.POINTER: "Pointer",
     Mode.PRESENTATION: "Presentation",
     Mode.MEDIA: "Media/System",
-    Mode.KEYBOARD: "Keyboard (later)",
+    Mode.KEYBOARD: "Keyboard",
 }
 
 
@@ -44,6 +44,9 @@ class Tray(QObject):
         on_exit: Callable[[], None],
         on_preview: Callable[[bool], None] = lambda _on: None,
         on_mode: Callable[[Mode], None] = lambda _mode: None,
+        on_settings: Callable[[], None] = lambda: None,
+        on_calibrate: Callable[[], None] = lambda: None,
+        on_custom_off: Callable[[bool], None] = lambda _off: None,
     ) -> None:
         super().__init__()
         self._on_command = on_command
@@ -58,6 +61,13 @@ class Tray(QObject):
         self._preview_action = QAction("Show camera preview", menu)
         self._preview_action.setCheckable(True)
         self._preview_action.toggled.connect(lambda on: on_preview(on))
+        settings_action = QAction("Settings…", menu)
+        settings_action.triggered.connect(lambda: on_settings())
+        calibrate_action = QAction("Calibrate…", menu)
+        calibrate_action.triggered.connect(lambda: on_calibrate())
+        self._custom_off_action = QAction("Turn off custom gestures", menu)
+        self._custom_off_action.setCheckable(True)
+        self._custom_off_action.toggled.connect(lambda off: on_custom_off(off))
         reload_action = QAction("Reload settings", menu)
         reload_action.triggered.connect(lambda: on_reload())
         reset_action = QAction("Reset to defaults", menu)
@@ -71,11 +81,14 @@ class Tray(QObject):
         for mode, label in _MODE_LABELS.items():
             action = QAction(label, self._mode_menu)
             action.setCheckable(True)
-            action.setEnabled(mode is not Mode.KEYBOARD)
             action.triggered.connect(lambda _checked=False, m=mode: self._pick_mode(m, on_mode))
             self._mode_menu.addAction(action)
             self.mode_actions[mode] = action
         self._sync_mode_checks()
+        menu.addSeparator()
+        menu.addAction(settings_action)
+        menu.addAction(calibrate_action)
+        menu.addAction(self._custom_off_action)
         menu.addSeparator()
         menu.addAction(self._preview_action)
         menu.addAction(reload_action)
@@ -111,6 +124,12 @@ class Tray(QObject):
     def _sync_mode_checks(self) -> None:
         for mode, action in self.mode_actions.items():
             action.setChecked(mode is self._mode)
+
+    def set_custom_off_checked(self, off: bool) -> None:
+        """Show whether custom gestures are switched off (no signal back to the app)."""
+        self._custom_off_action.blockSignals(True)
+        self._custom_off_action.setChecked(off)
+        self._custom_off_action.blockSignals(False)
 
     def set_preview_checked(self, on: bool) -> None:
         self._preview_action.blockSignals(True)

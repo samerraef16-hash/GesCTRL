@@ -82,9 +82,15 @@ def test_set_mode_while_tracking_lost_applies_when_the_hand_returns():
     assert (State.ACTIVE, Sub.NORMAL, "Media") in states(ev)
 
 
-def test_keyboard_unknown_names_and_the_current_mode_do_nothing():
+def test_keyboard_can_be_chosen_from_the_tray():
     eng, s = active_engine()
-    for arg in ("KEYBOARD", "BOGUS", "", "pointer", "POINTER"):
+    ev = eng.command(Command.SET_MODE, s.t_ns, "KEYBOARD")
+    assert eng.sm.mode is Mode.KEYBOARD and ModeChanged(Mode.KEYBOARD) in ev
+
+
+def test_unknown_names_and_the_current_mode_do_nothing():
+    eng, s = active_engine()
+    for arg in ("BOGUS", "", "pointer", "POINTER"):
         assert eng.command(Command.SET_MODE, s.t_ns, arg) == [], arg
     assert eng.sm.mode is Mode.POINTER
 

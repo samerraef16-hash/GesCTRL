@@ -75,3 +75,77 @@ def hit(
         if rect.contains(nx, ny, margin):
             return ident
     return None
+
+
+# -- level panel +/- targets (dwell users cannot drag a slider, spec 004 D4) ------------------
+
+LEVEL_STEP_TARGETS: Items = (
+    ("volume_up", Rect(0.35, 0.15, 0.10, 0.10)),
+    ("volume_down", Rect(0.35, 0.745, 0.10, 0.10)),
+    ("brightness_up", Rect(0.55, 0.15, 0.10, 0.10)),
+    ("brightness_down", Rect(0.55, 0.745, 0.10, 0.10)),
+)
+
+
+# -- on-screen keyboard (spec 004 D2) ----------------------------------------------------------
+
+_KB_COLS = 11  # grid cells per row; a key may span more than one
+_KB_CELL = 0.96 / _KB_COLS
+_KB_GAP = 0.006
+_KB_KEY_H = 0.07
+_KB_ROW_GAP = 0.005
+_KB_ROWS = (
+    # shortcut row: copy, paste, cut, undo, redo, select all, alt+tab, windows key, esc, move
+    (
+        ("s:copy", 1),
+        ("s:paste", 1),
+        ("s:cut", 1),
+        ("s:undo", 1),
+        ("s:redo", 1),
+        ("s:select_all", 1),
+        ("s:alt_tab", 1),
+        ("s:win", 1),
+        ("s:esc", 1),
+        ("move", 1),
+    ),
+    tuple((f"k:{c}", 1) for c in "1234567890-"),
+    (*((f"k:{c}", 1) for c in "qwertyuiop"), ("k:backspace", 1)),
+    tuple((f"k:{c}", 1) for c in "asdfghjkl;'"),
+    (*((f"k:{c}", 1) for c in "zxcvbnm,./"), ("k:tab", 1)),
+    (
+        ("m:shift", 1),
+        ("m:ctrl", 1),
+        ("m:alt", 1),
+        ("m:win", 1),
+        ("k:space", 2),
+        ("k:left", 1),
+        ("k:up", 1),
+        ("k:down", 1),
+        ("k:right", 1),
+        ("k:enter", 1),
+    ),
+)
+KEYBOARD_H = len(_KB_ROWS) * _KB_KEY_H + (len(_KB_ROWS) - 1) * _KB_ROW_GAP
+KEYBOARD_W = 0.96
+
+
+def keyboard_rect(position: str) -> Rect:
+    """The bounding rectangle of all keys, at the bottom or the top of the screen."""
+    y = 0.02 if position == "top" else 1.0 - 0.02 - KEYBOARD_H
+    return Rect(0.02, y, KEYBOARD_W, KEYBOARD_H)
+
+
+def keyboard_keys(position: str = "bottom") -> Items:
+    """Every key as a normalized rectangle (ids: ``k:`` character/named key, ``m:`` modifier,
+    ``s:`` shortcut, ``move``). Rows with fewer cells are centered."""
+    rect = keyboard_rect(position)
+    keys: list[tuple[str, Rect]] = []
+    for r, row in enumerate(_KB_ROWS):
+        y = rect.y + r * (_KB_KEY_H + _KB_ROW_GAP)
+        cells = sum(span for _, span in row)
+        x = rect.x + (_KB_COLS - cells) * _KB_CELL / 2
+        for ident, span in row:
+            w = span * _KB_CELL - _KB_GAP
+            keys.append((ident, Rect(x + _KB_GAP / 2, y, w, _KB_KEY_H)))
+            x += span * _KB_CELL
+    return tuple(keys)

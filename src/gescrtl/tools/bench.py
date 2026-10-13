@@ -2,9 +2,14 @@
 
 ``python -m gescrtl.tools.bench --replay "recordings/*idle*.jsonl"``
     Replays each recording through the core and counts consequential events (clicks, drags,
-    scrolls, resumes, mode changes, overlays opened, system actions, level steps). The scenario
+    scrolls, resumes, mode changes, overlays opened, system actions, level steps, typed keys,
+    custom gestures fired). The scenario
     comes from the recording's header (the NAME given to ``--record``). A recording of an
     idle/typing/talking/second-person scenario must produce none: otherwise the exit code is 1.
+
+``python -m gescrtl.tools.bench --matcher``
+    Times the custom gesture matcher per frame with 10 gestures of 5 samples each and reports
+    the p95 in milliseconds (the budget is 2 ms, spec 004 plan).
 
 ``python -m gescrtl.tools.bench --live 20 [--paused]``
     Runs the real camera and tracker for N seconds with a null input backend (no OS input is
@@ -24,7 +29,9 @@ from gescrtl.core.types import (
     ButtonDown,
     Click,
     Command,
+    CustomFired,
     Event,
+    KeyStroke,
     LevelStep,
     ModeChanged,
     OverlayShown,
@@ -53,6 +60,8 @@ class ReplayRow:
     overlays: int = 0  # mode menu / level panel / media grid shown
     actions: int = 0  # keys sent to the system (slides, media, screenshot, app switch)
     levels: int = 0  # volume / brightness steps
+    keys: int = 0  # keys typed in Keyboard Mode
+    customs: int = 0  # custom gestures fired
 
     @property
     def total(self) -> int:
@@ -65,6 +74,8 @@ class ReplayRow:
             + self.overlays
             + self.actions
             + self.levels
+            + self.keys
+            + self.customs
         )
 
     @property
@@ -99,21 +110,23 @@ def bench_file(path: Path) -> ReplayRow:
         overlays=count(active, OverlayShown),
         actions=count(active, SystemAction),
         levels=count(active, LevelStep),
+        keys=count(active, KeyStroke),
+        customs=count(active, CustomFired),
     )
 
 
 def replay_table(rows: list[ReplayRow]) -> str:
     lines = [
         "| file | scenario | seconds | clicks | drags | scrolls | resumes | modes | overlays "
-        "| actions | levels | per minute | verdict |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| actions | levels | keys | custom | per minute | verdict |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         verdict = ("FAIL" if r.total else "ok") if r.must_be_quiet else "-"
         lines.append(
             f"| {r.file} | {r.scenario or '?'} | {r.seconds:.1f} | {r.clicks} | {r.drags} | "
             f"{r.scrolls} | {r.resumes} | {r.modes} | {r.overlays} | {r.actions} | {r.levels} | "
-            f"{r.per_minute:.1f} | {verdict} |"
+            f"{r.keys} | {r.customs} | {r.per_minute:.1f} | {verdict} |"
         )
     return "\n".join(lines)
 
@@ -157,6 +170,10 @@ class NullInput:
 
     def system_action(self, action: object) -> bool:
         self._n("system_action")
+        return True
+
+    def key_stroke(self, key: str, mods: frozenset[str] = frozenset()) -> bool:
+        self._n("key_stroke")
         return True
 
     def release_all(self) -> None:
@@ -213,17 +230,64 @@ def run_live(seconds: float, paused: bool) -> int:
     return 0
 
 
+def run_matcher() -> int:
+    """Time ``CustomRecognizer.update`` over a busy stream: moving fast, so movements segment."""
+    import math
+
+    from gescrtl.core import custom, features
+    from gescrtl.core.config import CoreConfig
+    from gescrtl.core.types import Hand, Landmark, Mode, Pose
+
+    def hand(t: float) -> Hand:
+        cx, cy = 0.5 + 0.2 * math.cos(t * 6), 0.5 + 0.2 * math.sin(t * 6)
+        pts = tuple(
+            Landmark(cx + 0.02 * math.cos(i + t), cy + 0.03 * math.sin(i * 1.3), 0.0)
+            for i in range(21)
+        )
+        return Hand(pts, "Right", 0.95)
+
+    shape_sample = tuple(0.01 * i for i in range(custom.SHAPE_DIM))
+    move_path = [(math.cos(i / 5), math.sin(i / 5)) for i in range(custom.PATH_POINTS)]
+    move_sample = custom.pack_move(700.0, move_path, shape_sample)
+    gestures = [
+        custom.CustomGesture(f"s{i}", "shape", "MUTE", (), True, (shape_sample,) * 5, 0.3)
+        for i in range(5)
+    ] + [
+        custom.CustomGesture(f"m{i}", "move", "MUTE", (), True, (move_sample,) * 5, 0.3)
+        for i in range(5)
+    ]
+    cfg = CoreConfig(custom_gestures_enabled=True)
+    rec = custom.CustomRecognizer(cfg, gestures)
+    times: list[float] = []
+    for i in range(900):
+        h = hand(i / 30)
+        feats = features.compute(h, 4 / 3)
+        if feats is None:
+            continue
+        started = time.perf_counter_ns()
+        rec.update(h, feats, Pose.G1_RELAXED, Pose.G1_RELAXED, False, Mode.POINTER, i * 33_000_000)
+        times.append((time.perf_counter_ns() - started) / 1e6)
+    times.sort()
+    p95 = times[int(0.95 * (len(times) - 1))]
+    print("| frames | p50 ms | p95 ms | max ms |\n|---|---|---|---|")
+    print(f"| {len(times)} | {times[len(times) // 2]:.2f} | {p95:.2f} | {times[-1]:.2f} |")
+    return 0 if p95 <= 2.0 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="gescrtl.tools.bench", description=__doc__.split("\n\n")[0])
     ap.add_argument("--replay", metavar="GLOB", help="count false triggers in recordings")
     ap.add_argument("--live", type=float, metavar="SECONDS", help="measure the real pipeline")
     ap.add_argument("--paused", action="store_true", help="with --live: stay Paused")
+    ap.add_argument("--matcher", action="store_true", help="time the custom gesture matcher")
     args = ap.parse_args(sys.argv[1:] if argv is None else argv)
     if args.replay:
         return run_replay(args.replay)
     if args.live:
         return run_live(args.live, args.paused)
-    ap.error("choose --replay or --live")
+    if args.matcher:
+        return run_matcher()
+    ap.error("choose --replay, --live or --matcher")
     return 2
 
 

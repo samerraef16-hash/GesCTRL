@@ -5,6 +5,7 @@ Emits only overlay events and ``SystemAction``; it never moves the real cursor (
 
 from __future__ import annotations
 
+from gescrtl.core import mapping
 from gescrtl.core.config import CoreConfig
 from gescrtl.core.features import Features
 from gescrtl.core.select import ScreenPointer
@@ -16,7 +17,6 @@ from gescrtl.core.types import (
     OverlayPointerHidden,
     PointerStyle,
     Pose,
-    SystemAction,
 )
 
 _MS = 1_000_000
@@ -63,7 +63,16 @@ class PresentationController:
         """Swipe only; also fed while the flat hand clutch is on (D2 step 1)."""
         is_open = raw is not Pose.G10_INDEX_POINT and all(feats.extended(i) for i in range(4))
         action = self.swipe.update(t_ns, feats.anchor, feats.size, feats.aspect, is_open)
-        return [SystemAction(action)] if action is not None else []
+        if action is None:
+            return []
+        slot = (
+            "presentation.swipe_right" if action is Action.SLIDE_NEXT else "presentation.swipe_left"
+        )
+        return self._fire(slot)
+
+    def _fire(self, slot: str) -> list[Event]:
+        """The events of the action assigned to ``slot`` (the default unless remapped)."""
+        return mapping.events_for(mapping.resolve(self.cfg.mappings, slot), self.cfg.level_step)
 
     # -- show start / end ------------------------------------------------------------------
 
@@ -93,7 +102,7 @@ class PresentationController:
         if last is not None and t_ns - last < cfg.show_cooldown_ms * _MS:
             return []
         self._last_show_ns = t_ns
-        return [SystemAction(Action.SHOW_START if direction > 0 else Action.SHOW_END)]
+        return self._fire("presentation.thumb_up" if direction > 0 else "presentation.thumb_down")
 
     # -- laser ---------------------------------------------------------------------------
 

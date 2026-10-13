@@ -17,7 +17,8 @@ behavior, this document is amended first.
 | Paused | Running | No | Reduced (start: 10 FPS) | Launch (E1); pause (E3/E4); emergency stop (E5); Turn on (E7) | Resume (E2/E3); Turn off (E6) |
 | Active | Running | Yes, only in `Normal` and when confidence ≥ threshold | Full | Resume (E2/E3); automatic return from Tracking Lost (E9) | Pause, emergency stop, Turn off, hand loss, camera loss |
 | Active · Normal | Running | Yes | Full | Entering Active; mode confirmed or cancelled; clutch ended | Clutch (E16); mode menu (E12) |
-| Active · Clutched | Running | No (cursor frozen) | Full | Flat hand detected (E16) | Flat hand released (E17); flat hand held to 1.5 s (E4 → Paused) |
+| Active · Clutched | Running | No (cursor frozen) | Full | Flat hand detected (E16) | Fist (E17); flat hand held to 1.5 s (E4 → Paused) |
+| Active · Setup | Running | No (calibration or recording only) | Full | Start of calibration or enrollment | Finished, cancelled, hand lost for 3 s, pause, emergency stop |
 | Active · ModeMenuOpen | Running | No (menu only) | Full | Mode-menu gesture (E12) | Mode confirmed (E13); cancelled (E14); hand loss; pause |
 | Tracking Lost · HandMissing | Running | No | Full | Primary hand loss confirmed (E8) | Hand reappears (E9) automatic; pause; Turn off |
 | Tracking Lost · CameraUnavailable | Not available | No | None | Camera becomes unavailable (E10) | Camera available again (E11) → HandMissing; pause; Turn off |
@@ -32,7 +33,7 @@ resume gesture or uses the resume shortcut or tray item (FR-005a).
 - **Pointer** (default), **Keyboard**, **Presentation**, **Media/System**.
 - Exactly one mode is current at any time.
 - The current mode is kept through Paused and Tracking Lost and restored on return to Active.
-- Only Pointer has gestures in the first release. The other modes are named placeholders.
+- Pointer, Presentation, Media/System and Keyboard all have gestures (specs 002, 003, 004).
 
 ## Events
 
@@ -131,7 +132,11 @@ effect, because nothing is acting.
 2. While Active, the primary hand is kept by nearest-wrist-position continuity between frames.
 3. On automatic resume from Tracking Lost, a single hand appearing in the active region is
    accepted. If several appear, the one nearest the last known primary position is chosen.
-4. Non-primary hands never produce input.
+4. Non-primary hands never produce input, with one exception (constitution v1.3.0, ADR 0007): in
+   Keyboard Mode only, a second hand that is the opposite hand, confident, within 5 hand sizes of
+   the first, not a known bystander, and stable for the usual number of frames points at and
+   presses keys like the first hand. The first hand still owns every other gesture; the second
+   hand never moves the cursor, changes state or mode, or does anything but type.
 
 ## Mode menu
 
@@ -141,12 +146,32 @@ effect, because nothing is acting.
 - While the menu is open, no other input is sent (FR-002a).
 - A single accidental frame cannot switch modes: opening needs the hold time, and switching needs
   an explicit confirmation.
-- The menu lists all four modes; Keyboard is shown greyed out ("Later") until its spec.
+- The menu lists all four modes; with dwell confirmation, holding still on one chooses it.
 - The tray **Mode** submenu is the mouse fallback: it sends the `SET_MODE` command (recorded and
   replayed like any command) and does the same as a menu choice. While Paused or Tracking Lost
   the new mode applies when Active again.
 - There is one current mode. It starts as Pointer on every launch, survives pause, hand loss,
   emergency stop and camera loss, and is named in the pill ("Presentation", "Media · Hold").
+
+## Keyboard Mode
+
+- The on-screen keyboard is the only thing the hand points at. Hand movement is mapped onto the
+  keyboard area, and the OS cursor never moves.
+- A key is pressed by a stable pinch (or a dwell), once, with a short per-key cooldown. Modifiers
+  are kept in the core and folded into each key, so none is ever held down in Windows.
+- Pause, hand loss, emergency stop, a mode change and exit clear every modifier and release
+  everything (`ReleaseAll`).
+- The user's other hand may confirm a key (see Primary hand).
+
+## Setup (calibration and recording)
+
+- Started from the tray or Settings. Everything is released first. While it runs, no pointer, key,
+  or scroll input is sent and the flat-hand pause gesture is not used; the pause and emergency
+  stop commands still work and end it without changing anything.
+- A hand out of view for 3 s ends the session; a shorter loss restarts the step in progress.
+- Calibration measures the camera speed, the comfortable reach at each corner, and the open-hand
+  and pinch ratios. Recording a custom gesture takes five timed takes. The platform asks the user to
+  keep or discard a calibration result.
 
 ## Level panel
 

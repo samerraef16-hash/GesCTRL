@@ -1,9 +1,11 @@
 <!--
 SYNC IMPACT REPORT
-Version change: 1.0.0 → 1.1.0 (MINOR: workflow guidance materially changed)
-Modified sections: Development Workflow and Quality Gates (lean Spec Kit cycle);
+Version change: 1.2.0 → 1.3.0 (MINOR: the Keyboard-Mode exception widens from confirming to typing)
+Modified sections: Principle I (one-primary-hand rule: Keyboard Mode confirming hand, spec 004,
+  ADR 0007)
+Earlier (1.0.0 → 1.1.0, MINOR): Development Workflow and Quality Gates (lean Spec Kit cycle);
   Technical Standards (portfolio repo run from source; packaging optional)
-Principles I–VIII: unchanged
+Principles II–VIII: unchanged
 Templates: no edits required
 Deferred TODOs: none
 -->
@@ -26,7 +28,10 @@ GesCRTL injects real OS input; a wrong click or stuck key is the worst possible 
 - A user MUST always be able to stop gesture control instantly through at least two independent
   paths (a gesture and a global keyboard hotkey), plus a system-tray exit.
 - Only one controlling hand is tracked at a time (primary-hand lock); other hands/people in frame
-  MUST NOT produce input.
+  MUST NOT produce input. Exception: in Keyboard Mode only, a second hand that passes the
+  same-person check (ADR 0007) may point at and press keys like the primary hand (two-handed
+  typing); it never moves the cursor, changes state or mode, or triggers anything but keys, and a
+  hand that fails the check is ignored.
 
 Rationale: users will only adopt an input device they trust not to act on its own.
 
@@ -162,4 +167,4 @@ Rationale: users will only adopt an input device they trust not to act on its ow
   waived, only amended.
 - Runtime development guidance lives in `Plan.md` (roadmap) and `docs/adr/` (decisions).
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
+**Version**: 1.3.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-13

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from gescrtl.core import layout
 from gescrtl.core.config import CoreConfig
 from gescrtl.core.features import Features
-from gescrtl.core.select import PinchSelector, ScreenPointer
+from gescrtl.core.select import DwellSelector, PinchSelector, ScreenPointer
 from gescrtl.core.types import (
     Event,
     Mode,
@@ -24,7 +24,7 @@ from gescrtl.core.types import (
 
 _MS = 1_000_000
 
-# menu item id -> mode; "keyboard" is listed (greyed) but is not a choosable mode yet
+# menu item id -> mode
 MODE_BY_ITEM = {
     "pointer": Mode.POINTER,
     "keyboard": Mode.KEYBOARD,
@@ -45,12 +45,14 @@ class ModeMenu:
         self.cfg = cfg
         self._pointer = ScreenPointer(cfg)
         self._selector = PinchSelector(cfg)
+        self._dwell = DwellSelector(cfg)
         self._opened_ns = 0
         self._pointed: str | None = None
 
     def reset(self) -> list[Event]:
         self._pointer.reset()
         self._selector.reset()
+        self._dwell.reset()
         self._pointed = None
         return []
 
@@ -78,6 +80,8 @@ class ModeMenu:
         result.events.append(OverlayPointer(nx, ny, PointerStyle.SELECT))
 
         chosen = self._selector.update(pointed, raw, stable, t_ns)
-        if chosen is not None and MODE_BY_ITEM[chosen] is not Mode.KEYBOARD:
+        if self.cfg.confirm_method == "dwell":
+            chosen = chosen or self._dwell.update(pointed, (nx, ny), t_ns)
+        if chosen is not None:
             result.chosen = MODE_BY_ITEM[chosen]
         return result

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 class CoreConfig:
     # Mapping and smoothing (ADR 0005)
     active_region: float = 0.6
+    active_center_x: float = 0.5  # calibration may move the region (spec 004 D7)
+    active_center_y: float = 0.5
     one_euro_min_cutoff: float = 1.0
     one_euro_beta: float = 0.007
     one_euro_d_cutoff: float = 1.0
@@ -29,6 +31,7 @@ class CoreConfig:
     # Hold times and cooldowns (ms)
     resume_hold_ms: int = 1000
     pause_hold_ms: int = 1500
+    clutch_fist_ms: int = 600  # a fist must be held this long to end the flat-hand hold
     drag_hold_ms: int = 300
     right_click_cooldown_ms: int = 300
     right_click_max_hold_ms: int = 1000
@@ -96,3 +99,23 @@ class CoreConfig:
     action_cooldown_ms: int = 400
     confirm_window_ms: int = 3000
     target_margin: float = 0.01  # normalized screen distance inside a target needed to select it
+
+    # Keyboard Mode and confirmation (spec 004 D1, D2, D4)
+    confirm_method: str = "pinch"  # "pinch" or "dwell"
+    dwell_ms: int = 800
+    dwell_still_dist: float = 0.015  # normalized screen distance the point may wander
+    pointer_dwell_click: bool = False  # dwell = left click in Pointer Mode (opt-in)
+    two_hand_press: bool = True  # Keyboard Mode: the other hand's pinch presses the key
+    second_hand_max_dist: float = 5.0  # wrist to wrist, in hand sizes
+    keyboard_position: str = "bottom"  # "bottom" or "top"
+    key_repeat_delay_ms: int = 500
+    key_repeat_ms: int = 100
+    key_cooldown_ms: int = 150
+
+    # Gesture to action overrides: ((slot, action name), ...) (spec 004 D6)
+    mappings: tuple[tuple[str, str], ...] = ()
+
+    # Custom gestures (spec 004 D9)
+    custom_gestures_enabled: bool = False
+    custom_hold_ms: int = 600
+    custom_cooldown_ms: int = 1500

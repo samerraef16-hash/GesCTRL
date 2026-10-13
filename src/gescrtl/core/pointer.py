@@ -13,6 +13,7 @@ from enum import Enum, auto
 from gescrtl.core.config import CoreConfig
 from gescrtl.core.features import PINCH_MIN_REACH, Features
 from gescrtl.core.one_euro import OneEuro
+from gescrtl.core.select import DwellSelector
 from gescrtl.core.types import (
     Button,
     ButtonDown,
@@ -46,10 +47,12 @@ def _clamp01(v: float) -> float:
 class Pointer:
     def __init__(self, cfg: CoreConfig) -> None:
         self.cfg = cfg
+        self.dist_scale = 1.0  # monitor layout: keeps the double-click distance in pixels
         self._fx = OneEuro(cfg.one_euro_min_cutoff, cfg.one_euro_beta, cfg.one_euro_d_cutoff)
         self._fy = OneEuro(cfg.one_euro_min_cutoff, cfg.one_euro_beta, cfg.one_euro_d_cutoff)
         self._history: deque[tuple[float, float]] = deque(maxlen=max(cfg.pinch_lookback_frames, 1))
         self._tilt = OneEuro(2.0, 0.0, 1.0)  # ~2 Hz low-pass on the thumb angle
+        self._dwell = DwellSelector(cfg)
         self.reset()
 
     # -- lifecycle ---------------------------------------------------------------------------
@@ -59,6 +62,7 @@ class Pointer:
         self._fx.reset()
         self._fy.reset()
         self._tilt.reset()
+        self._dwell.reset()
         self._history.clear()
         self._phase = _Phase.MOVE
         self._need_release = True  # a pinch still held after a reset must be released and redone
@@ -93,8 +97,9 @@ class Pointer:
 
     def _map(self, ax: float, ay: float) -> tuple[float, float]:
         r = self.cfg.active_region
-        edge = 0.5 - r / 2
-        return _clamp01((ax - edge) / r), _clamp01((ay - edge) / r)
+        edge_x = self.cfg.active_center_x - r / 2
+        edge_y = self.cfg.active_center_y - r / 2
+        return _clamp01((ax - edge_x) / r), _clamp01((ay - edge_y) / r)
 
     def _set_cue(self, kind: CueKind, progress: float, t_ns: int) -> list[Event]:
         q = round(max(-1.0, min(1.0, progress)) * 10)  # SCROLL carries a signed strength
@@ -168,11 +173,38 @@ class Pointer:
             self._last_pos = pos
             events.append(MoveCursor(*pos))
         prog = self._pinch_progress(f)
-        if prog is None:
+        if self.cfg.pointer_dwell_click:
+            events += self._dwell_click(pos, stable, prog, t_ns)
+        elif prog is None:
             events += self._set_cue(CueKind.READY, 0.0, t_ns)
         else:
             events += self._set_cue(CueKind.PINCH, prog, t_ns)
         return events
+
+    # dwell click (accessibility, opt-in) -------------------------------------------------------
+
+    def _dwell_click(
+        self, pos: tuple[float, float], stable: Pose, prog: float | None, t_ns: int
+    ) -> list[Event]:
+        """A cursor held still for ``dwell_ms`` clicks once; it must leave to click again."""
+        if t_ns < self._hold_until_ns:  # just clicked: the cursor settles, nothing re-arms
+            return self._set_cue(CueKind.READY, 0.0, t_ns)
+        target = "cursor" if stable in _MOVE_POSES else None
+        if prog is not None:
+            target = None  # a pinch is forming: that is the click
+        if self._dwell.update(target, pos, t_ns) is not None:
+            self._hold_until_ns = t_ns + self.cfg.click_stabilize_ms * 1_000_000
+            return [
+                MoveCursor(*pos),
+                Click(Button.LEFT),
+                *self._set_cue(CueKind.CLICK, 0.0, t_ns),
+            ]
+        progress = self._dwell.progress
+        if progress > 0:
+            return self._set_cue(CueKind.DWELL, progress, t_ns)
+        if prog is None:
+            return self._set_cue(CueKind.READY, 0.0, t_ns)
+        return self._set_cue(CueKind.PINCH, prog, t_ns)
 
     # pinch ---------------------------------------------------------------------------------
 
@@ -186,7 +218,9 @@ class Pointer:
         if raw is Pose.G2_PINCH_INDEX and self._last_left is not None:
             last_t, last_pos = self._last_left
             within_time = t_ns - last_t <= self.cfg.double_click_ms * 1_000_000
-            if within_time and self._dist(start, last_pos) <= self.cfg.double_click_dist:
+            if within_time and self._dist(start, last_pos) <= (
+                self.cfg.double_click_dist * self.dist_scale
+            ):
                 start = last_pos  # second tap of a double click lands on the first
         self._phase = _Phase.PINCH
         self._pinch_pose = raw

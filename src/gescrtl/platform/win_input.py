@@ -8,6 +8,7 @@ per-monitor DPI aware. Elevated windows ignore injected input (UIPI); nothing he
 from __future__ import annotations
 
 import ctypes
+import struct
 import threading
 from collections.abc import Callable
 from ctypes import wintypes
@@ -21,11 +22,20 @@ INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
 KEYEVENTF_EXTENDEDKEY = 0x0001
 KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_UNICODE = 0x0004
 
+VK_BACK = 0x08
 VK_TAB = 0x09
+VK_RETURN = 0x0D
+VK_SHIFT = 0x10
+VK_CONTROL = 0x11
+VK_ESCAPE = 0x1B
+VK_SPACE = 0x20
 VK_MENU = 0x12  # Alt
 VK_LEFT = 0x25
+VK_UP = 0x26
 VK_RIGHT = 0x27
+VK_DOWN = 0x28
 VK_SNAPSHOT = 0x2C  # Print Screen
 VK_LWIN = 0x5B
 VK_MEDIA_NEXT_TRACK = 0xB0
@@ -42,7 +52,29 @@ _FIXED_KEYS: dict[Action, list[int]] = {
     Action.MUTE: [VK_VOLUME_MUTE],
     Action.SCREENSHOT: [VK_LWIN, VK_SNAPSHOT],  # Win+PrtSc saves to Pictures\Screenshots
     Action.APP_SWITCH: [VK_MENU, VK_TAB],
+    # keyboard shortcuts (Keyboard Mode shortcut row, remapped actions)
+    Action.COPY: [VK_CONTROL, 0x43],
+    Action.PASTE: [VK_CONTROL, 0x56],
+    Action.CUT: [VK_CONTROL, 0x58],
+    Action.UNDO: [VK_CONTROL, 0x5A],
+    Action.REDO: [VK_CONTROL, 0x59],
+    Action.SELECT_ALL: [VK_CONTROL, 0x41],
+    Action.WIN: [VK_LWIN],
+    Action.ESC: [VK_ESCAPE],
 }
+
+_NAMED_VK = {
+    "backspace": VK_BACK,
+    "tab": VK_TAB,
+    "enter": VK_RETURN,
+    "space": VK_SPACE,
+    "esc": VK_ESCAPE,
+    "left": VK_LEFT,
+    "up": VK_UP,
+    "right": VK_RIGHT,
+    "down": VK_DOWN,
+}
+_MOD_VK = {"shift": VK_SHIFT, "ctrl": VK_CONTROL, "alt": VK_MENU, "win": VK_LWIN}
 
 
 def default_keys_for(action: Action) -> list[int] | None:
@@ -154,6 +186,49 @@ def build_key_inputs(vks: list[int]) -> list[INPUT]:
     return inputs
 
 
+def _unicode_inputs(text: str) -> list[INPUT]:
+    """Each UTF-16 unit as a Unicode key down and up: works whatever input language is active."""
+    raw = text.encode("utf-16-le")
+    inputs: list[INPUT] = []
+    for unit in struct.unpack(f"<{len(raw) // 2}H", raw):
+        for flags in (KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP):
+            inp = INPUT()
+            inp.type = INPUT_KEYBOARD
+            inp.ki = KEYBDINPUT(0, unit, flags, 0, 0)
+            inputs.append(inp)
+    return inputs
+
+
+def _scan_char(char: str) -> int:
+    """Virtual key (low byte) and shift state (high byte) of ``char`` in the active layout."""
+    return int(user32.VkKeyScanW(char))
+
+
+def build_stroke(
+    key: str,
+    mods: frozenset[str] = frozenset(),
+    scan: Callable[[str], int] = _scan_char,
+) -> tuple[list[INPUT], list[int]] | None:
+    """The INPUTs for one key stroke, and the chord's virtual keys (empty for plain characters,
+    which are sent as Unicode and hold nothing). None if the key cannot be sent."""
+    held = [_MOD_VK[m] for m in ("win", "ctrl", "alt", "shift") if m in mods]
+    if key in _NAMED_VK:
+        vks = [*held, _NAMED_VK[key]]
+        return build_key_inputs(vks), vks
+    if len(key) != 1:
+        return None
+    if not (mods & {"ctrl", "alt", "win"}):
+        return _unicode_inputs(key), []
+    code = scan(key)
+    if code == -1:
+        return None
+    vk, state = code & 0xFF, (code >> 8) & 0xFF
+    if state & 1 and VK_SHIFT not in held:
+        held.append(VK_SHIFT)
+    vks = [*held, vk]
+    return build_key_inputs(vks), vks
+
+
 def _send(*inputs: INPUT) -> bool:
     arr = (INPUT * len(inputs))(*inputs)
     return user32.SendInput(len(inputs), arr, ctypes.sizeof(INPUT)) == len(inputs)
@@ -167,6 +242,7 @@ class WinInput:
         self._down: set[Button] = set()
         self._keys_down: list[int] = []  # keys of a chord whose send did not complete
         self._keys_for = keys_for
+        self.desktop_mode = False  # True once the core knows the monitor layout (spec 004 D8)
 
     # -- geometry ------------------------------------------------------------------------
 
@@ -193,7 +269,9 @@ class WinInput:
     # -- InputBackend -------------------------------------------------------------------------
 
     def move(self, nx: float, ny: float) -> None:
-        left, top, width, height = self.primary_rect()
+        left, top, width, height = (
+            self._virtual_rect() if self.desktop_mode else self.primary_rect()
+        )
         px = left + round(min(max(nx, 0.0), 1.0) * (width - 1))
         py = top + round(min(max(ny, 0.0), 1.0) * (height - 1))
         self.move_px(px, py)
@@ -235,6 +313,19 @@ class WinInput:
         with self._lock:
             self._keys_down = list(keys)  # mark first: a failed send must still be released
             if _send(*build_key_inputs(keys)):
+                self._keys_down = []
+        return True
+
+    def key_stroke(self, key: str, mods: frozenset[str] = frozenset()) -> bool:
+        """Send one key press (a character, or a named key) with the given modifiers."""
+        built = build_stroke(key, mods)
+        if built is None:
+            return False
+        inputs, vks = built
+        with self._lock:
+            if vks:
+                self._keys_down = list(vks)  # mark first: a failed send must still be released
+            if _send(*inputs):
                 self._keys_down = []
         return True
 

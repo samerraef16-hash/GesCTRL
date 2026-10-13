@@ -54,11 +54,49 @@ slide changes work. The real cursor never moves in Presentation Mode.
 | Cancel a waiting confirmation | G5 |
 | Level panel (all modes) | G9 held 0.5 s, then G2 on a slider and move the hand up or down (100 % per slider height, at most 40 %/s); G5 or 5 s idle closes it |
 
+## Keyboard Mode (spec 004)
+
+No new hand form. The keys are targets, like the Media grid.
+
+| Action | Gesture |
+|---|---|
+| Highlight a key | G1 (the hand is mapped onto the keyboard area, so a small movement reaches every key) |
+| Press the highlighted key | G2 (thumb-index pinch), or hold still on it for 0.8 s if dwell is selected |
+| Type with both hands | Each hand points at its own key and pinches to press it, whichever hand pinches first sends first (the second hand must be the opposite hand, close to the first, Keyboard Mode only, can be turned off) |
+| Backspace, arrows | Hold the pinch to repeat after 0.5 s |
+| Shift, Ctrl, Alt, Win | Tap once for the next key only, tap again to lock, tap a third time to clear |
+| Copy, Paste, Cut, Undo, Redo, Select all, Alt+Tab, Win, Esc | The shortcut row |
+| Move the keyboard | The "Move" key swaps top and bottom |
+
+## Accessibility: dwell
+
+With **Confirmation: dwell** (Settings), holding the point still on a target for the dwell time
+(default 0.8 s, within 1.5 % of the screen) chooses it in the mode menu, the Media grid, the level
+panel (the + and − targets) and the keyboard. A dwell never repeats while the point stays still.
+**Dwell click** (off by default) does the same for a left click in Pointer Mode. The pinch keeps
+working in every case.
+
+## Custom gestures (spec 004)
+
+A user can record a still hand shape (held 0.6 s) or a movement (a circle, a line, a wave) and give
+it an allowed action. They work in every mode unless limited to some, need the usual confidence,
+stable frames and a cooldown (1.5 s), are ignored while a built-in gesture is in progress, and
+never send a click, drag, or scroll. A shape must be a hand that the built-in poses call "relaxed"
+and not too close to another custom shape. A movement must not look like the open-hand swipe.
+Clicks, pause, resume, emergency stop, the mode menu, the level panel and Turn off can never be
+assigned. They are off until turned on in Settings.
+
+## Remapping
+
+Settings > Gestures assigns an allowed action to the presentation swipes and thumbs and to each
+Media grid target. The defaults are the tables above.
+
 ## Global and mode-specific gestures
 
 Global (same meaning in every mode): G6 resume, G7 mode menu, G9 level panel, G8 clutch / pause,
 and the emergency stop. Mode-specific: G1–G5 in Pointer Mode, G10 / swipe / G4 thumb in
-Presentation Mode, G1 + G2 + G5 on the grid in Media/System Mode. A gesture that a mode does not
+Presentation Mode, G1 + G2 + G5 on the grid in Media/System Mode, G1 + G2 on the keyboard in
+Keyboard Mode. A gesture that a mode does not
 define does nothing in that mode. G7 and G9 are ignored while a gesture of the mode is in progress
 (mid-pinch, drag, scroll, swipe, pending confirmation).
 
@@ -102,9 +140,9 @@ No hand form has two meanings in the same state. Each table lists what is recogn
 
 | Gesture | Meaning |
 |---|---|
-| G8 released (any other recognized pose) | Back to Active · Normal |
+| G5 (fist), held for 0.6 s (`clutch_fist_ms`) | Back to Active · Normal (the cursor stays frozen until the fist opens) |
 | G8 held to 1.5 s | Pause |
-| All others | Ignored (cursor frozen) |
+| All others, including releasing the flat hand | Ignored (cursor frozen) |
 
 **Active · Normal · Presentation**
 
@@ -125,6 +163,22 @@ No hand form has two meanings in the same state. Each table lists what is recogn
 | G5 | Cancel a waiting confirmation |
 | G7 / G9 held | Mode menu / level panel |
 | Everything else | Ignored |
+
+**Active · Normal · Keyboard**
+
+| Gesture | Meaning |
+|---|---|
+| G1 | Highlight a key |
+| G2 on a key (either hand) | Press it |
+| G7 / G9 held | Mode menu / level panel |
+| Everything else | Ignored |
+
+**Active · Setup** (calibration or recording a custom gesture)
+
+| Gesture | Meaning |
+|---|---|
+| Any hand | Only used as the sample being recorded; nothing is sent |
+| Pause, emergency stop | End the session; nothing changes |
 
 **Active · LevelPanelOpen**
 

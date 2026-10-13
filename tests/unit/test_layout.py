@@ -8,6 +8,9 @@ GROUPS = {
     "menu": layout.MODE_MENU_ITEMS,
     "levels": layout.LEVEL_SLIDERS,
     "media": layout.MEDIA_TARGETS,
+    "level_steps": layout.LEVEL_STEP_TARGETS,
+    "keyboard_bottom": layout.keyboard_keys("bottom"),
+    "keyboard_top": layout.keyboard_keys("top"),
 }
 SCREENS = [(1280, 720), (1920, 1080), (2560, 1440)]
 
@@ -76,3 +79,50 @@ def test_hit_switches_to_another_target_only_when_clearly_inside_it():
     assert layout.hit(items, other.x + 0.002, cy, 0.01, current="pointer") is None
     cx, _ = centre(items, "keyboard")
     assert layout.hit(items, cx, cy, 0.01, current="pointer") == "keyboard"
+
+
+def test_level_step_targets_do_not_touch_the_sliders():
+    both = tuple(layout.LEVEL_SLIDERS) + tuple(layout.LEVEL_STEP_TARGETS)
+    for (a, ra), (b, rb) in itertools.combinations(both, 2):
+        apart = (
+            ra.x + ra.w <= rb.x or rb.x + rb.w <= ra.x or ra.y + ra.h <= rb.y or rb.y + rb.h <= ra.y
+        )
+        assert apart, (a, b)
+
+
+def test_keyboard_has_every_key_the_spec_lists():
+    ids = {i for i, _ in layout.keyboard_keys("bottom")}
+    letters = {f"k:{c}" for c in "abcdefghijklmnopqrstuvwxyz"}
+    digits = {f"k:{c}" for c in "0123456789"}
+    named = {"k:space", "k:backspace", "k:enter", "k:tab", "k:left", "k:right", "k:up", "k:down"}
+    mods = {"m:shift", "m:ctrl", "m:alt", "m:win"}
+    shortcuts = {
+        "s:copy",
+        "s:paste",
+        "s:cut",
+        "s:undo",
+        "s:redo",
+        "s:select_all",
+        "s:alt_tab",
+        "s:win",
+        "s:esc",
+    }
+    assert (letters | digits | named | mods | shortcuts | {"move"}) <= ids
+    assert len(ids) == len(layout.keyboard_keys("bottom"))
+
+
+def test_keyboard_rect_holds_all_keys_at_the_bottom_or_the_top():
+    for position in ("bottom", "top"):
+        rect = layout.keyboard_rect(position)
+        for ident, r in layout.keyboard_keys(position):
+            assert rect.x <= r.x and r.x + r.w <= rect.x + rect.w + 1e-9, ident
+            assert rect.y <= r.y and r.y + r.h <= rect.y + rect.h + 1e-9, ident
+    assert layout.keyboard_rect("top").y < 0.1 < 0.5 < layout.keyboard_rect("bottom").y
+
+
+def test_every_key_can_be_pointed_at_with_the_margin_rule():
+    for position in ("bottom", "top"):
+        keys = layout.keyboard_keys(position)
+        for ident, r in keys:
+            cx, cy = r.x + r.w / 2, r.y + r.h / 2
+            assert layout.hit(keys, cx, cy, 0.01) == ident

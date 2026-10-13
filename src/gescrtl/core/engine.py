@@ -9,8 +9,11 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
-from gescrtl.core import features
+from gescrtl.core import features, mapping
 from gescrtl.core.config import CoreConfig
+from gescrtl.core.custom import CustomGesture, CustomRecognizer, CustomResult
+from gescrtl.core.displays import Displays
+from gescrtl.core.keyboard import KeyboardController
 from gescrtl.core.level_panel import LevelPanel
 from gescrtl.core.media import MediaController
 from gescrtl.core.mode_menu import ModeMenu
@@ -19,6 +22,8 @@ from gescrtl.core.pointer import Pointer
 from gescrtl.core.poses import PoseClassifier, PoseTracker
 from gescrtl.core.presentation import PresentationController
 from gescrtl.core.primary_hand import PrimaryHand
+from gescrtl.core.second_hand import SecondHand
+from gescrtl.core.setup import SetupSession, make_session
 from gescrtl.core.state_machine import StateMachine
 from gescrtl.core.types import (
     DEFAULT_ASPECT,
@@ -29,13 +34,18 @@ from gescrtl.core.types import (
     Hand,
     HandFrame,
     Mode,
+    MoveCursor,
     Pose,
     ReleaseAll,
+    SetupResult,
     State,
     Sub,
+    SystemAction,
+    Warning,
 )
 
 _MS = 1_000_000
+SETUP_LOSS_MS = 3000  # a setup session survives a hand out of view for this long
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +63,7 @@ class DebugInfo:
     upright_deg: float = 0.0  # hand lean away from straight up (flat hand needs <= 25)
     scroll_rel_deg: float = 0.0  # thumb tilt away from where the scroll pose started
     scroll_rate: float = 0.0  # wheel units per second being sent
+    second: str = ""  # Keyboard Mode: why the second hand is or is not accepted
 
 
 class Engine:
@@ -69,6 +80,14 @@ class Engine:
             Mode.PRESENTATION: self.presentation,
             Mode.MEDIA: MediaController(self.cfg),
         }
+        self.keyboard = KeyboardController(self.cfg)
+        self._controllers[Mode.KEYBOARD] = self.keyboard
+        self.second = SecondHand(self.cfg)
+        self.custom = CustomRecognizer(self.cfg)
+        self.custom_gestures: tuple[CustomGesture, ...] = ()
+        self.displays: Displays | None = None
+        self.session: SetupSession | None = None
+        self._bad_since_ns = 0
         self._null = NullController()  # modes without gestures yet
         self.menu = ModeMenu(self.cfg)
         self.panel = LevelPanel(self.cfg)
@@ -102,9 +121,21 @@ class Engine:
     def command(self, cmd: Command, t_ns: int, arg: str = "") -> list[Event]:
         events = self.sm.tick(t_ns)
         before = self._snapshot()
-        events += self.sm.on_command(cmd, t_ns, arg)
+        if cmd is Command.START_SETUP:
+            events += self._start_setup(arg, t_ns)
+        elif cmd is Command.END_SETUP:
+            events += self._end_setup()
+        elif cmd is Command.DISPLAYS:
+            events += self._set_displays(arg)
+        else:
+            events += self.sm.on_command(cmd, t_ns, arg)
         events += self._after_transition(before)
         return events
+
+    def set_custom_gestures(self, gestures: tuple[CustomGesture, ...]) -> None:
+        """The user's custom gestures (loaded or changed by the platform)."""
+        self.custom_gestures = tuple(gestures)
+        self.custom.set_gestures(self.custom_gestures)
 
     def apply_config(self, cfg: CoreConfig) -> list[Event]:
         """Reload settings: release everything first, keep state and mode (FR-024a)."""
@@ -119,11 +150,16 @@ class Engine:
         self.presentation = PresentationController(cfg)
         self._controllers[Mode.PRESENTATION] = self.presentation
         self._controllers[Mode.MEDIA] = MediaController(cfg)
+        self._controllers[Mode.KEYBOARD] = self.keyboard = KeyboardController(cfg)
+        self.second = SecondHand(cfg)
+        self.custom = CustomRecognizer(cfg, self.custom_gestures)
         self.menu = ModeMenu(cfg)
         self.panel = LevelPanel(cfg)
         self.tracker.invalidate()
         self.classifier.reset()
         self._last_anchor = None
+        self._apply_displays()
+        events += self._end_setup()
         return events
 
     def step(self, frame: HandFrame | None, t_ns: int) -> list[Event]:
@@ -152,6 +188,7 @@ class Engine:
 
         self._bad = 0
         self._last_anchor = feats.anchor
+        assert hand is not None
         raw = self.classifier.classify(feats)
         stable = self.tracker.update(raw, t_ns)
         self.debug = DebugInfo(
@@ -182,29 +219,144 @@ class Engine:
             elif sm.mode is Mode.POINTER and stable is Pose.G5_FIST:
                 events += self._fist_held()
             else:
-                events += self._leave_fist()
-                events += self._controller().update(feats, raw, stable, t_ns)
+                events += self._normal_frame(hand, hands, feats, raw, stable, aspect, t_ns)
         elif sm.sub is Sub.MODE_MENU:
             events += self._menu_frame(feats, raw, stable, t_ns)
         elif sm.sub is Sub.LEVEL_PANEL:
             events += self._panel_frame(feats, raw, stable, t_ns)
+        elif sm.sub is Sub.SETUP:
+            events += self._setup_frame(hand, feats, raw, stable, t_ns)
         elif sm.sub is Sub.CLUTCHED:
             if sm.mode is Mode.PRESENTATION:
                 events += self.presentation.on_swipe(feats, raw, t_ns)  # a flat-hand swipe counts
             if stable is Pose.G8_FLAT_HAND:
                 events += self._flat_hand_pause(t_ns, feats.anchor)
-            elif stable is not Pose.NONE:
+            elif (
+                stable is Pose.G5_FIST  # only a held fist ends the hold; other poses are ignored
+                and t_ns - self.tracker.since_ns >= self.cfg.clutch_fist_ms * _MS
+            ):
                 events += sm.clutch_end()
 
         self.debug = replace(
             self.debug,
             scroll_rel_deg=self.pointer.scroll_rel_deg,
             scroll_rate=self.pointer.scroll_rate,
+            second=self.second.status
+            if sm.mode is Mode.KEYBOARD and self.cfg.two_hand_press
+            else "",
         )
+        events = self._mode_actions(events)
         events += self._after_transition(before)
-        return events
+        return self._to_desktop(events)
 
     # -- internals -------------------------------------------------------------------------
+
+    def _normal_frame(
+        self,
+        hand: Hand,
+        hands: tuple[Hand, ...],
+        feats: features.Features,
+        raw: Pose,
+        stable: Pose,
+        aspect: float,
+        t_ns: int,
+    ) -> list[Event]:
+        """Active · Normal and no global gesture: custom gestures, then the mode's controller."""
+        cfg = self.cfg
+        controller = self._controller()
+        events: list[Event] = []
+        custom = (
+            self.custom.update(hand, feats, raw, stable, controller.busy, self.sm.mode, t_ns)
+            if self.custom.active
+            else CustomResult()
+        )
+        if custom.freeze:  # a recognized custom shape holds the cursor, like the fist
+            events += self._fist_held()
+        else:
+            events += self._leave_fist()
+            if self.sm.mode is Mode.KEYBOARD:
+                others = tuple(h for h in hands if h is not hand)
+                self.keyboard.second_input = (
+                    self.second.update(hand, feats, others, aspect, self.primary.bystander, t_ns)
+                    if cfg.two_hand_press
+                    else None
+                )
+            events += controller.update(feats, raw, stable, t_ns)
+        return events + custom.events
+
+    def _mode_actions(self, events: list[Event]) -> list[Event]:
+        """A mapped ``MODE_*`` action changes the mode through the tray path (D6)."""
+        if not any(
+            isinstance(e, SystemAction) and e.action.name in mapping.MODE_ACTION_TO_MODE
+            for e in events
+        ):
+            return events
+        out: list[Event] = []
+        for e in events:
+            if isinstance(e, SystemAction) and e.action.name in mapping.MODE_ACTION_TO_MODE:
+                out += self.sm.set_mode(mapping.MODE_ACTION_TO_MODE[e.action.name])
+            else:
+                out.append(e)
+        return out
+
+    def _to_desktop(self, events: list[Event]) -> list[Event]:
+        """With a monitor layout, cursor moves are over the desktop box and clamped to a screen."""
+        displays = self.displays
+        if displays is None or not any(isinstance(e, MoveCursor) for e in events):
+            return events
+        return [
+            MoveCursor(*displays.clamp(e.nx, e.ny)) if isinstance(e, MoveCursor) else e
+            for e in events
+        ]
+
+    def _set_displays(self, arg: str) -> list[Event]:
+        displays = Displays.parse(arg)
+        if displays is None:
+            return [Warning("Monitor layout not understood: keeping the previous one")]
+        self.displays = displays
+        self._apply_displays()
+        return []
+
+    def _apply_displays(self) -> None:
+        scale = self.displays.scale_x if self.displays is not None else 1.0
+        self.pointer.dist_scale = scale
+
+    # -- setup sessions (calibration, enrollment) --------------------------------------------
+
+    def _start_setup(self, arg: str, t_ns: int) -> list[Event]:
+        sm = self.sm
+        if not (sm.state is State.ACTIVE and sm.sub is Sub.NORMAL):
+            return [Warning("Setup needs GesCRTL to be running: resume first")]
+        session = make_session(arg, self.cfg, self.custom_gestures)
+        if session is None:
+            return [Warning(f"Unknown setup request {arg!r}")]
+        events = sm.start_setup()
+        self.session = session
+        self.tracker.invalidate()
+        return events + session.start(t_ns)
+
+    def _end_setup(self) -> list[Event]:
+        """Cancel a running setup session; nothing changes (FR-017)."""
+        if self.sm.sub is not Sub.SETUP:
+            return []
+        events = self.sm.end_setup()
+        if self.session is not None:
+            events.append(SetupResult(self.session.kind, None))
+            self.session = None
+        return events
+
+    def _setup_frame(
+        self, hand: Hand, feats: features.Features, raw: Pose, stable: Pose, t_ns: int
+    ) -> list[Event]:
+        if self.session is None:
+            return self.sm.end_setup()
+        step = self.session.update(feats, raw, stable, t_ns, hand)
+        events = list(step.events)
+        if step.done:
+            events += self.sm.end_setup()
+            events.append(SetupResult(self.session.kind, step.values))
+            self.session = None
+        return events
 
     def _snapshot(self) -> tuple[State, Sub, Mode]:
         return (self.sm.state, self.sm.sub, self.sm.mode)
@@ -315,12 +467,24 @@ class Engine:
         self.debug = None
         self.tracker.invalidate()
         self.presentation.bad_frame()
+        self.second.reset()
         events: list[Event] = []
         if sm.state is State.PAUSED:
             self.tracker.reset()
             self.classifier.reset()
             if self._bad >= self.cfg.loss_frames:
                 sm.armed = True  # hand really gone: the resume gesture may count again
+        elif sm.state is State.ACTIVE and sm.sub is Sub.SETUP:
+            if self.session is not None:
+                self.session.bad_frame(t_ns)
+            if self._bad == 1:
+                self._bad_since_ns = t_ns
+            if self._bad >= self.cfg.loss_frames:
+                self._last_anchor = None  # a real jump: accept the hand where it is next
+            if t_ns - self._bad_since_ns >= SETUP_LOSS_MS * _MS:
+                before = self._snapshot()
+                events += sm.hand_lost()
+                events += self._after_transition(before)
         elif sm.state is State.ACTIVE and self._bad >= self.cfg.loss_frames:
             before = self._snapshot()
             events += sm.hand_lost()
@@ -349,10 +513,15 @@ class Engine:
             return []
         self.menu.reset()
         self.panel.reset()
+        self.second.reset()
+        self.custom.reset()
         self._bad = 0
         self._last_anchor = None
         self._fist = False
         events: list[Event] = []
+        if before[1] is Sub.SETUP and sm.sub is not Sub.SETUP and self.session is not None:
+            events.append(SetupResult(self.session.kind, None))  # cancelled by pause, loss, stop
+            self.session = None
         for controller in self._controllers.values():
             events += controller.reset()
         if sm.state in (State.TRACKING_LOST, State.INACTIVE):

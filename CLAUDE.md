@@ -5,7 +5,7 @@ project on GitHub, run from source; not distributed as an installed product.
 
 ## Where things are
 
-- `Plan.md`: roadmap and spec grouping (§3). `.specify/memory/constitution.md`: rules (v1.1.0).
+- `Plan.md`: roadmap and spec grouping (§3). `.specify/memory/constitution.md`: rules (v1.3.0).
 - `docs/interaction/`: interaction model (states, events), gestures G1–G7, safety policy, HUD.
 - `docs/adr/`: decisions. `docs/measurements/feasibility-report.md`: measured numbers.
 - `specs/NNN-*/`: one folder per spec. Active spec is in `.specify/feature.json`.
@@ -21,7 +21,9 @@ project on GitHub, run from source; not distributed as an installed product.
 
 - Safety: confidence + stable frames before any click/key; hysteresis and cooldowns;
   ReleaseAll on pause, loss, mode change, exit, or exception; emergency stop `Ctrl+Alt+Esc`
-  (goes to Paused); one primary hand only.
+  (goes to Paused); one primary hand only (exception: Keyboard Mode may take a second, same-person
+  hand that types with its own pointer and pinch, and nothing else; constitution v1.3.0,
+  ADR 0007).
 - Testable core: everything after tracking is pure logic (landmark frames + injected clock → events),
   covered by landmark-replay tests (JSONL). Platform code (SendInput, DPI, hotkeys, overlay) lives
   behind interfaces in `platform/`; core never imports it.

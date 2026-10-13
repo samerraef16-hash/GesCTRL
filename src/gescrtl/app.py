@@ -15,15 +15,18 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
 
 import cv2
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
+from gescrtl.core import mapping
 from gescrtl.core.config import CoreConfig
+from gescrtl.core.custom import CustomGesture
 from gescrtl.core.engine import Engine
 from gescrtl.core.types import (
     ButtonDown,
@@ -32,27 +35,33 @@ from gescrtl.core.types import (
     Command,
     Event,
     HandFrame,
+    KeyStroke,
     LevelReading,
     LevelStep,
     MoveCursor,
     ReleaseAll,
     Scroll,
+    SetupResult,
+    SetupView,
     State,
     StateChanged,
     SystemAction,
     Warning,
 )
+from gescrtl.platform import displays, win_autostart
+from gescrtl.platform.displays import DisplayWatcher
 from gescrtl.platform.hud import Hud
 from gescrtl.platform.interfaces import InputBackend, LevelBackend
 from gescrtl.platform.levels import WinLevels
 from gescrtl.platform.presenter_keys import make_keys_for
 from gescrtl.platform.preview import PreviewWindow
+from gescrtl.platform.settings_window import SettingsWindow
 from gescrtl.platform.tray import Tray
 from gescrtl.platform.win_exit import install_exit_handlers
 from gescrtl.platform.win_hotkeys import WinHotkeys
 from gescrtl.platform.win_input import WinInput, enable_dpi_awareness
 from gescrtl.recording.jsonl import RecordingWriter
-from gescrtl.settings import store
+from gescrtl.settings import custom_store, store
 from gescrtl.stats import FrameTiming, StageStats
 from gescrtl.tracking.camera import Camera, CameraError
 from gescrtl.tracking.mediapipe_adapter import MediaPipeTracker
@@ -120,6 +129,10 @@ class Worker(threading.Thread):
     def apply_config(self, cfg: CoreConfig) -> None:
         """Reload settings on the worker thread: ReleaseAll first, state and mode are kept."""
         self._q.put(lambda: self._emit_all(self.engine.apply_config(cfg)))
+
+    def set_custom_gestures(self, gestures: tuple[CustomGesture, ...]) -> None:
+        """Give the engine the user's custom gestures (on the worker thread)."""
+        self._q.put(lambda: self.engine.set_custom_gestures(tuple(gestures)))
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -243,11 +256,20 @@ class Worker(threading.Thread):
                 self.input.scroll(e.delta)
             elif isinstance(e, ReleaseAll):
                 self.input.release_all()
+            elif isinstance(e, KeyStroke):
+                self._key_stroke(e)
             elif isinstance(e, SystemAction):
                 self._system_action(e)
             elif isinstance(e, LevelStep):
                 self._level_step(e)
             self.ui(e)
+
+    def _key_stroke(self, e: KeyStroke) -> None:
+        """Typed keys never raise into the worker loop either."""
+        try:
+            self.input.key_stroke(e.key, e.mods)
+        except Exception:
+            log.exception("key stroke %r failed", e.key)
 
     def _level_step(self, e: LevelStep) -> None:
         """Volume / brightness never raise into the worker loop either."""
@@ -384,7 +406,11 @@ def main(argv: list[str] | None = None) -> int:
         return dataclasses.replace(base, **{k: v for k, v in overrides.items() if v is not None})
 
     settings, settings_warnings = store.load()
+    current = [settings]  # the settings in force, shared by the callbacks below
     cfg = build_config(settings)
+    displays.set_overlay_monitor(settings.overlay_monitor)
+    gestures, gesture_warnings = custom_store.load()
+    gesture_state = [gestures]
     engine = Engine(cfg)
     camera = Camera()
     stats = StageStats()
@@ -393,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
     worker = Worker(engine, input_backend, camera, bridge.event.emit, stats)
     levels = WinLevels(on_level=lambda level, value: bridge.event.emit(LevelReading(level, value)))
     worker.levels = levels
+    worker.set_custom_gestures(gestures)
     preview = PreviewWindow(cfg.active_region)
     if args.record:
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -443,6 +470,7 @@ def main(argv: list[str] | None = None) -> int:
         preview.hide()
         worker.stop()
         worker.join(3.0)
+        watcher.stop()
         levels.stop()
         hotkeys.stop()
         tray.close()
@@ -450,11 +478,22 @@ def main(argv: list[str] | None = None) -> int:
         input_backend.release_all()
         qt.quit()
 
+    settings_window: list[SettingsWindow | None] = [None]
+
     def apply_settings(loaded: tuple[store.Settings, list[str]], what: str) -> None:
         new_settings, warnings = loaded
+        current[0] = new_settings
         new_cfg = build_config(new_settings)
         worker.apply_config(new_cfg)
         preview.set_region(new_cfg.active_region)
+        displays.set_overlay_monitor(new_settings.overlay_monitor)
+        hud.pill._relayout()
+        if win_autostart.is_enabled() != new_settings.start_with_windows:
+            if not win_autostart.set_enabled(new_settings.start_with_windows):
+                warnings = [*warnings, "start with Windows could not be changed"]
+        tray.set_custom_off_checked(not new_settings.custom_gestures_enabled)
+        if settings_window[0] is not None:
+            settings_window[0].refresh()
         note = f"{what}." if not warnings else f"{what}, but: " + "; ".join(warnings[:3])
         more = f" (+{len(warnings) - 3} more)" if len(warnings) > 3 else ""
         tray.notify(note + more, warning=bool(warnings))
@@ -464,8 +503,129 @@ def main(argv: list[str] | None = None) -> int:
     def reload_settings() -> None:
         apply_settings(store.load(), "Settings reloaded")
 
+    def save_gestures(new: tuple[CustomGesture, ...]) -> None:
+        gesture_state[0] = new
+        try:
+            custom_store.write(new)
+        except OSError as exc:
+            tray.notify(f"Could not save custom gestures: {exc}")
+        worker.set_custom_gestures(new)
+        if settings_window[0] is not None:
+            settings_window[0].refresh_gestures()
+
     def reset_settings() -> None:
+        save_gestures(custom_store.disable_all(gesture_state[0]))  # kept, but turned off
         apply_settings(store.reset(), "Settings reset to defaults")
+
+    def apply_from_window(new_settings: store.Settings) -> None:
+        try:
+            store.write(new_settings)
+        except OSError as exc:
+            tray.notify(f"Could not save settings: {exc}")
+        apply_settings((new_settings, []), "Settings applied")
+
+    def begin_setup(arg: str) -> None:
+        """Calibration and enrollment need the app running: turn on and resume first."""
+        for cmd in (Command.TURN_ON, Command.RESUME):
+            worker.post(cmd)
+        worker.post(Command.START_SETUP, arg)
+
+    def start_calibration() -> None:
+        begin_setup("calibration")
+
+    def start_enroll(kind: str, name: str) -> None:
+        begin_setup(f"enroll:{kind}:{name}")
+
+    def edit_gesture(name: str, changes: dict[str, Any]) -> None:
+        save_gestures(
+            tuple(
+                dataclasses.replace(g, **changes) if g.name == name else g for g in gesture_state[0]
+            )
+        )
+
+    def delete_gesture(name: str) -> None:
+        save_gestures(custom_store.remove(gesture_state[0], name))
+
+    def open_settings() -> None:
+        if settings_window[0] is None:
+            settings_window[0] = SettingsWindow(
+                lambda: current[0],
+                apply_from_window,
+                reset_settings,
+                start_calibration,
+                lambda: gesture_state[0],
+                start_enroll,
+                edit_gesture,
+                delete_gesture,
+            )
+        win = settings_window[0]
+        win.refresh()
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def custom_off(off: bool) -> None:
+        changed = current[0].model_copy(update={"custom_gestures_enabled": not off})
+        apply_from_window(changed)
+
+    last_setup_text = [""]
+
+    def finish_calibration(values: dict[str, Any] | None) -> None:
+        if values is None:
+            tray.notify(last_setup_text[0] or "Calibration cancelled. Nothing changed.", False)
+            return
+        box = QMessageBox(
+            QMessageBox.Icon.Question,
+            "Calibration finished",
+            f"Movement range {float(values['active_region']) * 100:.0f}% of the camera view, "
+            f"pinch thresholds {values['pinch_enter']} and {values['pinch_release']}.\n\n"
+            "Keep these settings?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        box.button(QMessageBox.StandardButton.Yes).setText("Keep")
+        box.button(QMessageBox.StandardButton.No).setText("Discard")
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            tray.notify("Calibration discarded. Nothing changed.", False)
+            return
+        merged = {**current[0].model_dump(), **values, "calibrated_at": date.today().isoformat()}
+        new_settings, warnings = store.parse(merged)
+        apply_from_window(new_settings)
+        if warnings:
+            tray.notify("Calibration kept, but: " + "; ".join(warnings[:2]))
+
+    def finish_enrollment(values: dict[str, Any] | None) -> None:
+        if values is None:
+            tray.notify(last_setup_text[0] or "Recording cancelled.", False)
+            return
+        name = str(values["name"])
+        existing = next((g for g in gesture_state[0] if g.name == name), None)
+        action = existing.action if existing is not None else "PLAY_PAUSE"
+        if existing is None:
+            labels = [mapping.label(a) for a in mapping.ALLOWED]
+            picked, ok = QInputDialog.getItem(
+                settings_window[0], "Choose an action", f"What should “{name}” do?", labels, 0
+            )
+            if not ok:
+                tray.notify("Recording discarded.", False)
+                return
+            action = mapping.ALLOWED[labels.index(picked)]
+        gesture = CustomGesture(
+            name=name,
+            kind=str(values["kind"]),
+            action=action,
+            modes=existing.modes if existing is not None else (),
+            enabled=True,
+            samples=tuple(tuple(float(v) for v in t) for t in values["samples"]),  # type: ignore[attr-defined]
+            threshold=float(values["threshold"]),  # type: ignore[arg-type]
+            created=date.today().isoformat(),
+        )
+        save_gestures(custom_store.upsert(gesture_state[0], gesture))
+        hint = (
+            ""
+            if current[0].custom_gestures_enabled
+            else " Turn on custom gestures under General in Settings to use it."
+        )
+        tray.notify(f"Saved “{name}”.{hint}", False)
 
     tray = Tray(
         worker.post,
@@ -474,7 +634,15 @@ def main(argv: list[str] | None = None) -> int:
         quit_app,
         set_preview,
         lambda mode: worker.post(Command.SET_MODE, mode.name),
+        open_settings,
+        start_calibration,
+        custom_off,
     )
+    tray.set_custom_off_checked(not settings.custom_gestures_enabled)
+    for w in gesture_warnings:
+        log.warning("custom gestures: %s", w)
+    if gesture_warnings:
+        tray.notify("Custom gestures: " + "; ".join(gesture_warnings[:2]))
     if settings_warnings:
         for w in settings_warnings:
             log.warning("settings: %s", w)
@@ -483,6 +651,17 @@ def main(argv: list[str] | None = None) -> int:
     def route(event: Event) -> None:
         hud.handle(event)
         tray.handle(event)
+        if isinstance(event, SetupView):
+            last_setup_text[0] = event.text
+            if settings_window[0] is not None:
+                settings_window[0].set_setup_status(event.text)
+        elif isinstance(event, SetupResult):
+            if settings_window[0] is not None:
+                settings_window[0].set_setup_status("")
+            if event.kind == "calibration":
+                finish_calibration(event.values)
+            else:
+                finish_enrollment(event.values)
         if isinstance(event, StateChanged):
             preview.set_status(event.hud_text or "Off")
             preview.set_camera_off(event.state is State.INACTIVE)
@@ -504,6 +683,12 @@ def main(argv: list[str] | None = None) -> int:
     if hotkeys.unavailable:
         log.warning("hotkeys unavailable: %s", ", ".join(hotkeys.unavailable))
 
+    def layout_changed(arg: str) -> None:
+        input_backend.desktop_mode = True  # cursor positions are now over the whole desktop
+        worker.post(Command.DISPLAYS, arg)
+
+    watcher = DisplayWatcher(layout_changed)
+    watcher.poll()
     if args.preview:
         set_preview(True)
     worker.start()

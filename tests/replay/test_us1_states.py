@@ -89,6 +89,7 @@ def clutch_script():
     s.hold(Pose.G1_RELAXED, 300, at=(0.4, 0.4))
     s.hold(Pose.G8_FLAT_HAND, 600, at=(0.4, 0.4))
     s.move(Pose.G8_FLAT_HAND, to=(0.7, 0.7), ms=300)
+    s.hold(Pose.G5_FIST, 900, at=(0.7, 0.7))  # a held fist ends the hold
     s.hold(Pose.G1_RELAXED, 600, at=(0.7, 0.7))
     return s.frames()
 
@@ -106,6 +107,38 @@ def test_flat_hand_freezes_cursor_then_resumes_following():
     assert any(isinstance(e, ReleaseAll) for e in ev[max(0, i - 2) : i + 1])
     assert any(isinstance(e, CueChanged) and e.kind is CueKind.CLUTCH for e in ev[i:j])
     assert any(isinstance(e, MoveCursor) for e in ev[j:])
+
+
+def test_only_a_fist_ends_the_hold():
+    eng, s = active_engine()
+    s = s.next().hold(Pose.G1_RELAXED, 300).hold(Pose.G8_FLAT_HAND, 600)
+    # a relaxed hand, pointing, a pinch, an open palm and a thumbs up all leave the hold on
+    for pz in (
+        Pose.G1_RELAXED,
+        Pose.G10_INDEX_POINT,
+        Pose.G2_PINCH_INDEX,
+        Pose.G6_OPEN_PALM,
+        Pose.G4_THUMBS_UP,
+    ):
+        s.hold(pz, 500)
+    ev = run(eng, s.frames())
+    assert eng.sub is Sub.CLUTCHED
+    i = next(k for k, e in enumerate(ev) if isinstance(e, StateChanged) and e.sub is Sub.CLUTCHED)
+    assert not any(isinstance(e, MoveCursor) for e in ev[i:])
+    run(eng, s.next().hold(Pose.G5_FIST, 900).frames())
+    assert eng.state is State.ACTIVE and eng.sub is Sub.NORMAL
+
+
+def test_the_pointer_stays_frozen_until_the_fist_opens():
+    eng, s = active_engine()
+    s = s.next().hold(Pose.G1_RELAXED, 300).hold(Pose.G8_FLAT_HAND, 600).hold(Pose.G5_FIST, 900)
+    run(eng, s.frames())
+    assert eng.sub is Sub.NORMAL
+    held = run(eng, s.next().hold(Pose.G5_FIST, 400, at=(0.8, 0.8)).frames())
+    assert not any(isinstance(e, MoveCursor) for e in held)
+    assert any(
+        isinstance(e, MoveCursor) for e in run(eng, s.next().hold(Pose.G1_RELAXED, 500).frames())
+    )
 
 
 def test_flat_hand_held_for_pause_time_pauses_and_releases():
@@ -389,3 +422,20 @@ def test_hand_that_only_passes_through_flat_does_not_clutch():
     s.hold(Pose.G1_RELAXED, 300)
     run(eng, s.frames())
     assert eng.sm.sub is Sub.NORMAL
+
+
+def test_starting_the_hold_shows_how_to_resume():
+    eng, s = active_engine()
+    ev = run(eng, s.next().hold(Pose.G1_RELAXED, 300).hold(Pose.G8_FLAT_HAND, 600).frames())
+    hints = [e for e in ev if isinstance(e, HintsShown)]
+    assert hints and hints[-1].items[0] == "Fist: resume"
+
+
+def test_a_brief_fist_does_not_end_the_hold():
+    eng, s = active_engine()
+    s = s.next().hold(Pose.G1_RELAXED, 300).hold(Pose.G8_FLAT_HAND, 600)
+    s.hold(Pose.G5_FIST, 300).hold(Pose.G1_RELAXED, 300)  # a stray fist, then the hand relaxes
+    run(eng, s.frames())
+    assert eng.sub is Sub.CLUTCHED
+    run(eng, s.next().hold(Pose.G5_FIST, 900).frames())
+    assert eng.sub is Sub.NORMAL

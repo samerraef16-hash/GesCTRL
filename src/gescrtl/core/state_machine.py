@@ -25,6 +25,8 @@ from gescrtl.core.types import (
     Warning,
 )
 
+CLUTCH_HINTS = ("Fist: resume", "Flat hand 1.5 s: pause")  # shown when the hold starts
+
 # At most four hints, for the mode being entered only (FR-005). Keyboard has none until spec 004.
 MODE_HINTS: dict[Mode, tuple[str, ...]] = {
     Mode.POINTER: (
@@ -45,6 +47,12 @@ MODE_HINTS: dict[Mode, tuple[str, ...]] = {
         "Fist: cancel",
         "Flat hand 1.5 s: pause",
     ),
+    Mode.KEYBOARD: (
+        "Point at a key, pinch to type",
+        "Your other hand's pinch types too",
+        "Three fingers: modes",
+        "Flat hand 1.5 s: pause",
+    ),
 }
 MODE_TEXT = {
     Mode.POINTER: "Pointer",
@@ -55,7 +63,8 @@ MODE_TEXT = {
 START_HINT = ("Show open palm to start",)
 MENU_TEXT = "Mode menu"
 PANEL_TEXT = "Levels"
-_OVERLAY_SUBS = (Sub.MODE_MENU, Sub.LEVEL_PANEL)
+SETUP_TEXT = "Setup"
+_OVERLAY_SUBS = (Sub.MODE_MENU, Sub.LEVEL_PANEL, Sub.SETUP)
 
 
 class StateMachine:
@@ -150,7 +159,8 @@ class StateMachine:
     def clutch_start(self) -> list[Event]:
         """E16."""
         if self.state is State.ACTIVE and self.sub is Sub.NORMAL:
-            return self._go(State.ACTIVE, Sub.CLUTCHED, f"{self.mode_text()} · Hold", "clutch")
+            events = self._go(State.ACTIVE, Sub.CLUTCHED, f"{self.mode_text()} · Hold", "clutch")
+            return [*events, HintsShown(CLUTCH_HINTS)]
         return []
 
     def clutch_end(self) -> list[Event]:
@@ -168,10 +178,8 @@ class StateMachine:
         return []
 
     def confirm_mode(self, mode: Mode) -> list[Event]:
-        """E13: a mode was chosen in the menu. Keyboard is listed but cannot be chosen."""
+        """E13: a mode was chosen in the menu."""
         if not (self.state is State.ACTIVE and self.sub is Sub.MODE_MENU):
-            return []
-        if mode is Mode.KEYBOARD:
             return []
         changed = mode is not self.mode
         self.mode = mode
@@ -200,6 +208,18 @@ class StateMachine:
             return self._go(State.ACTIVE, Sub.NORMAL, self.mode_text())
         return []
 
+    def start_setup(self) -> list[Event]:
+        """Active · Normal -> Active · Setup (calibration or enrollment). Releases everything."""
+        if self.state is State.ACTIVE and self.sub is Sub.NORMAL:
+            return self._go(State.ACTIVE, Sub.SETUP, SETUP_TEXT, "setup")
+        return []
+
+    def end_setup(self) -> list[Event]:
+        """Setup finished or cancelled: back to Normal in the same mode."""
+        if self.state is State.ACTIVE and self.sub is Sub.SETUP:
+            return self._go(State.ACTIVE, Sub.NORMAL, self.mode_text())
+        return []
+
     def set_mode(self, name: str) -> list[Event]:
         """Tray fallback (FR-025). Active: like a menu choice. Paused / Tracking Lost: the mode
         applies when Active again and the indicator text does not change."""
@@ -207,7 +227,7 @@ class StateMachine:
             mode = Mode[name]
         except KeyError:
             return []
-        if mode is Mode.KEYBOARD or mode is self.mode or self.state is State.INACTIVE:
+        if mode is self.mode or self.state is State.INACTIVE:
             return []
         self.mode = mode
         if self.state is State.ACTIVE:

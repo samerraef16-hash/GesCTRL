@@ -49,6 +49,12 @@ class FakeInput:
         self.log.append(("action", action))
         return self.action_supported
 
+    def key_stroke(self, key, mods=frozenset()) -> bool:
+        if getattr(self, "key_error", False):
+            raise OSError("blocked")
+        self.log.append(("key", key, mods))
+        return True
+
     def release_all(self) -> None:
         with self.lock:
             self.releases += 1
@@ -366,3 +372,58 @@ def test_level_steps_without_a_backend_are_ignored():
     w, inp, ui = idle_worker()
     w._emit_all([LevelStep(Level.VOLUME, 2)])
     assert LevelStep(Level.VOLUME, 2) in ui
+
+
+def typing_frames():
+    """Resume, switch to Keyboard Mode with a command, point at a key and pinch it."""
+    from support.keyboard import key_cam
+
+    s = Script().hold(Pose.G6_OPEN_PALM, 1500, at=(0.5, 0.5)).hold(Pose.G1_RELAXED, 300)
+    x, y = key_cam("k:h")
+    s.move(Pose.G1_RELAXED, to=(x, y), ms=500).hold(Pose.G1_RELAXED, 900)
+    s.hold(Pose.G2_PINCH_INDEX, 400).hold(Pose.G1_RELAXED, 400)
+    return [f for f in s.frames() if isinstance(f, HandFrame)]
+
+
+def test_typed_keys_reach_the_input_backend():
+    w, inp, cam, _ui = start_worker(typing_frames())
+    try:
+        w.post(Command.SET_MODE, "KEYBOARD")
+        assert wait_for(lambda: cam.exhausted)
+        assert wait_for(lambda: any(e[0] == "key" for e in inp.log))
+        assert [e[1] for e in inp.log if e[0] == "key"] == ["h"]
+        assert not [e for e in inp.log if e[0] in ("click", "down", "scroll")]
+    finally:
+        w.stop()
+        w.join(3)
+
+
+def test_a_failing_key_stroke_never_stops_the_worker():
+    w, inp, cam, _ui = start_worker(typing_frames())
+    inp.key_error = True
+    try:
+        w.post(Command.SET_MODE, "KEYBOARD")
+        assert wait_for(lambda: cam.exhausted)
+        time.sleep(0.2)
+        assert w.is_alive() and w.engine.state is State.ACTIVE
+    finally:
+        w.stop()
+        w.join(3)
+
+
+def test_custom_gestures_and_the_monitor_layout_reach_the_engine():
+    import json
+
+    from gescrtl.core.custom import SHAPE_DIM, CustomGesture
+
+    w, _inp, _cam, _ui = start_worker([])
+    try:
+        gesture = CustomGesture("g", "shape", "MUTE", (), True, ((0.0,) * SHAPE_DIM,), 0.3)
+        w.set_custom_gestures((gesture,))
+        layout = [{"x": 0, "y": 0, "w": 100, "h": 50, "primary": True, "name": "A"}]
+        w.post(Command.DISPLAYS, json.dumps(layout))
+        assert wait_for(lambda: w.engine.custom_gestures == (gesture,))
+        assert wait_for(lambda: w.engine.displays is not None)
+    finally:
+        w.stop()
+        w.join(3)

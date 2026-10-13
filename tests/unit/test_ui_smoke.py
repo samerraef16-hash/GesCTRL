@@ -210,7 +210,7 @@ def test_tray_mode_submenu_follows_the_engine_and_forwards_picks(qapp):
     tray = Tray(lambda c: None, lambda: None, lambda: None, lambda: None, on_mode=picked.append)
     actions = tray.mode_actions
     assert list(actions) == [Mode.POINTER, Mode.PRESENTATION, Mode.MEDIA, Mode.KEYBOARD]
-    assert actions[Mode.POINTER].isChecked() and not actions[Mode.KEYBOARD].isEnabled()
+    assert actions[Mode.POINTER].isChecked() and actions[Mode.KEYBOARD].isEnabled()
     actions[Mode.MEDIA].trigger()
     assert picked == [Mode.MEDIA]
     assert actions[Mode.POINTER].isChecked() and not actions[Mode.MEDIA].isChecked()  # not yet

@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
+from gescrtl.core import mapping
 from gescrtl.core.config import CoreConfig
 
 Frac = Annotated[float, Field(ge=0.0, le=1.0)]
@@ -24,6 +25,8 @@ class Settings(BaseModel):
 
     # Mapping and smoothing
     active_region: float = Field(0.6, ge=0.2, le=1.0)
+    active_center_x: float = Field(0.5, ge=0.2, le=0.8)
+    active_center_y: float = Field(0.5, ge=0.2, le=0.8)
     one_euro_min_cutoff: float = Field(1.0, ge=0.05, le=10.0)
     one_euro_beta: float = Field(0.007, ge=0.0, le=50.0)
     one_euro_d_cutoff: float = Field(1.0, ge=0.1, le=10.0)
@@ -40,6 +43,7 @@ class Settings(BaseModel):
     # Hold times and cooldowns (ms)
     resume_hold_ms: int = Field(1000, ge=100, le=5000)
     pause_hold_ms: int = Field(1500, ge=100, le=5000)
+    clutch_fist_ms: int = Field(600, ge=200, le=3000)
     drag_hold_ms: int = Field(300, ge=100, le=5000)
     right_click_cooldown_ms: int = Field(300, ge=100, le=5000)
     right_click_max_hold_ms: int = Field(1000, ge=100, le=5000)
@@ -106,12 +110,51 @@ class Settings(BaseModel):
     confirm_window_ms: int = Field(3000, ge=1000, le=10000)
     target_margin: float = Field(0.01, ge=0.0, le=0.05)
 
+    # Confirmation (pinch or dwell) and the on-screen keyboard (spec 004)
+    confirm_method: Literal["pinch", "dwell"] = "pinch"
+    dwell_ms: int = Field(800, ge=300, le=3000)
+    dwell_still_dist: float = Field(0.015, ge=0.003, le=0.05)
+    pointer_dwell_click: bool = False
+    two_hand_press: bool = True
+    second_hand_max_dist: float = Field(5.0, ge=1.0, le=8.0)
+    keyboard_position: Literal["bottom", "top"] = "bottom"
+    key_repeat_delay_ms: int = Field(500, ge=200, le=2000)
+    key_repeat_ms: int = Field(100, ge=30, le=1000)
+    key_cooldown_ms: int = Field(150, ge=50, le=2000)
+
+    # Gesture to action overrides: {slot: action name}; only valid, allowed pairs are kept
+    mappings: dict[str, str] = Field(default_factory=dict)
+
+    # Custom gestures (off by default; the gestures themselves live in custom_gestures.json)
+    custom_gestures_enabled: bool = False
+    custom_hold_ms: int = Field(600, ge=200, le=3000)
+    custom_cooldown_ms: int = Field(1500, ge=300, le=10000)
+
+    # Platform-only settings (never reach the core)
+    overlay_monitor: str = ""  # device name of the monitor that shows overlays; "" = primary
+    start_with_windows: bool = False
+    calibrated_at: str = ""  # ISO date of the last kept calibration (informational)
+
     def to_core_config(self, double_click_ms: int | None = None) -> CoreConfig:
         """The engine config. The double-click time comes from the OS, not from settings."""
-        values: dict[str, Any] = self.model_dump()
+        values: dict[str, Any] = self.model_dump(exclude=set(PLATFORM_ONLY))
+        values["mappings"] = tuple(sorted(self.mappings.items()))
         if double_click_ms is not None:
             values["double_click_ms"] = double_click_ms
         return CoreConfig(**values)
+
+
+PLATFORM_ONLY = ("overlay_monitor", "start_with_windows", "calibrated_at")
+
+
+def _label(name: str) -> str:
+    return name.replace("_", " ").capitalize()
+
+
+for _name, _field in Settings.model_fields.items():  # a label for every field (settings window)
+    if _field.title is None:
+        _field.title = _label(_name)
+Settings.model_rebuild(force=True)
 
 
 def default_path() -> Path:
@@ -121,7 +164,9 @@ def default_path() -> Path:
 
 def _validators() -> dict[str, TypeAdapter[Any]]:
     return {
-        name: TypeAdapter(Annotated[field.annotation, *field.metadata])
+        name: TypeAdapter(
+            Annotated[field.annotation, *field.metadata] if field.metadata else field.annotation
+        )
         for name, field in Settings.model_fields.items()
     }
 
@@ -139,13 +184,23 @@ def parse(data: Any) -> tuple[Settings, list[str]]:
         if key not in _VALIDATORS:
             warnings.append(f"{key}: unknown setting ignored")
             continue
-        default = Settings.model_fields[key].default
+        default = Settings.model_fields[key].get_default(call_default_factory=True)
         try:
-            if isinstance(value, bool):
+            numeric = isinstance(default, (int, float)) and not isinstance(default, bool)
+            if isinstance(value, bool) and numeric:
                 raise ValueError("a number is required")
             good[key] = _VALIDATORS[key].validate_python(value)
         except (ValidationError, ValueError):
             warnings.append(f"{key}: invalid value {value!r}, using the default {default!r}")
+    if "mappings" in good:
+        kept: dict[str, str] = {}
+        for slot, action in good["mappings"].items():
+            problem = mapping.validate(slot, action)
+            if problem:
+                warnings.append(f"mappings: {problem}, ignored")
+            else:
+                kept[slot] = action
+        good["mappings"] = kept
     settings = Settings(**good)
     if settings.pinch_enter >= settings.pinch_release:
         warnings.append("pinch_enter must be below pinch_release: both reset to their defaults")
@@ -203,3 +258,8 @@ def reset(path: Path | None = None) -> tuple[Settings, list[str]]:
     except OSError as exc:
         return settings, [f"could not write settings: {exc}"]
     return settings, []
+
+
+def write(settings: Settings, path: Path | None = None) -> Path:
+    """Save the settings file (the name the app uses; it is never an image)."""
+    return save(settings, path)
